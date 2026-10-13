@@ -201,7 +201,7 @@ TinyAV/
 
 1. **Clone or extract TinyAV**:
    ```powershell
-   git clone https://github.com/YourUsername/TinyAV.git
+   git clone https://github.com/ankitkaran99/TinyAV.git
    cd TinyAV
    ```
 
@@ -295,33 +295,35 @@ python -m pytest -v
 Output:
 ```
 ============================= test session starts =============================
-collected 23 items
+collected 25 items
 
 tests/test_binary_updater.py::test_system_arch PASSED                    [  4%]
 tests/test_binary_updater.py::test_parse_version_tuple PASSED            [  8%]
-tests/test_binary_updater.py::test_apply_zip_update_direct_preserves_configs_and_db PASSED [ 13%]
-tests/test_binary_updater.py::test_check_for_updates_mocked PASSED       [ 17%]
-tests/test_cancellation_and_settings.py::test_engine_cancel_active_scan PASSED [ 21%]
-tests/test_cancellation_and_settings.py::test_engine_cancel_when_no_active_proc PASSED [ 26%]
-tests/test_config_generator.py::test_generate_configs_direct_in_temp_dir PASSED [ 30%]
-tests/test_config_generator.py::test_generate_configs_invalid_dir PASSED [ 34%]
-tests/test_config_generator.py::test_high_level_generate_configs PASSED  [ 39%]
-tests/test_engine_parser.py::test_parse_clamscan_line_ok PASSED          [ 43%]
-tests/test_engine_parser.py::test_parse_clamscan_line_found PASSED       [ 47%]
+tests/test_binary_updater.py::test_apply_zip_update_direct_preserves_configs_and_db PASSED [ 12%]
+tests/test_binary_updater.py::test_check_for_updates_mocked PASSED       [ 16%]
+tests/test_cancellation_and_settings.py::test_engine_cancel_active_scan PASSED [ 20%]
+tests/test_cancellation_and_settings.py::test_engine_cancel_when_no_active_proc PASSED [ 24%]
+tests/test_cancellation_and_settings.py::test_scan_excludes_quarantine_directory PASSED [ 28%]
+tests/test_config_generator.py::test_generate_configs_direct_in_temp_dir PASSED [ 32%]
+tests/test_config_generator.py::test_generate_configs_invalid_dir PASSED [ 36%]
+tests/test_config_generator.py::test_high_level_generate_configs PASSED  [ 40%]
+tests/test_engine_parser.py::test_parse_clamscan_line_ok PASSED          [ 44%]
+tests/test_engine_parser.py::test_parse_clamscan_line_found PASSED       [ 48%]
 tests/test_engine_parser.py::test_parse_clamscan_line_error PASSED       [ 52%]
 tests/test_engine_parser.py::test_parse_clamscan_unrelated_lines PASSED  [ 56%]
 tests/test_engine_parser.py::test_engine_mode_unavailable_when_no_binaries PASSED [ 60%]
-tests/test_folder_watcher.py::test_folder_watcher_temp_file_filter PASSED [ 65%]
-tests/test_folder_watcher.py::test_folder_watcher_scan_and_auto_quarantine PASSED [ 69%]
-tests/test_folder_watcher.py::test_folder_watcher_quarantine_exclusion PASSED [ 73%]
-tests/test_process_scanner.py::test_collect_process_files PASSED         [ 78%]
-tests/test_quarantine.py::test_quarantine_lifecycle PASSED               [ 82%]
-tests/test_quarantine.py::test_quarantine_restore_collision PASSED       [ 86%]
-tests/test_settings.py::test_default_config PASSED                       [ 91%]
-tests/test_settings.py::test_update_and_save_config PASSED               [ 95%]
+tests/test_folder_watcher.py::test_folder_watcher_temp_file_filter PASSED [ 64%]
+tests/test_folder_watcher.py::test_folder_watcher_scan_and_auto_quarantine PASSED [ 68%]
+tests/test_folder_watcher.py::test_folder_watcher_quarantine_exclusion PASSED [ 72%]
+tests/test_process_scanner.py::test_collect_process_files PASSED         [ 76%]
+tests/test_quarantine.py::test_quarantine_lifecycle PASSED               [ 80%]
+tests/test_quarantine.py::test_quarantine_restore_collision PASSED       [ 84%]
+tests/test_quarantine.py::test_quarantine_restore_multiple_collisions PASSED [ 88%]
+tests/test_settings.py::test_default_config PASSED                       [ 92%]
+tests/test_settings.py::test_update_and_save_config PASSED               [ 96%]
 tests/test_settings.py::test_corrupted_config_fallback PASSED            [100%]
 
-============================= 23 passed in 13.08s =============================
+============================= 25 passed in 13.54s =============================
 ```
 
 ---
