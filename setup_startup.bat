@@ -83,7 +83,7 @@ if /i "%~1"=="--run" goto DO_RUN_MINIMIZED
 :MENU
 cls
 echo =====================================================================
-echo                 TinyAV - Windows Startup & Tray Setup                
+echo                 TinyAV - Windows Startup and Tray Setup                
 echo =====================================================================
 echo.
 echo Target Executable : %TARGET_EXE%
@@ -95,9 +95,18 @@ if exist "%ICON_FILE%" (
     echo Shortcut Icon     : Default Windows icon
 )
 echo.
+set "REG_ENABLED=0"
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "TinyAV" >nul 2>&1
+if not errorlevel 1 set "REG_ENABLED=1"
+
+set "LNK_ENABLED=0"
+if exist "%STARTUP_LNK%" set "LNK_ENABLED=1"
+
 echo Status:
-if exist "%STARTUP_LNK%" (
-    echo   Auto-Start at Login : [ENABLED] (Shortcut present in Startup folder)
+if "!REG_ENABLED!"=="1" (
+    echo   Auto-Start at Login : [ENABLED] - Registered in Windows Run registry
+) else if "!LNK_ENABLED!"=="1" (
+    echo   Auto-Start at Login : [ENABLED] - Shortcut in Startup folder
 ) else (
     echo   Auto-Start at Login : [DISABLED]
 )
