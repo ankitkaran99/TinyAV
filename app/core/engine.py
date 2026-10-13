@@ -3,6 +3,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Dict, List, Optional, Tuple
@@ -248,19 +249,23 @@ class ClamAVEngine:
         If using clamscan CLI on multiple files, uses batch streaming with --file-list
         to avoid reloading virus signatures per file (up to 50x-100x faster).
         """
+        start_time = time.time()
         summary = ScanSummary()
         total = len(file_paths)
         if total == 0:
+            summary.duration_seconds = time.time() - start_time
             return summary
 
         # If clamscan CLI is active and we have multiple files, use batch streaming
         if self.mode == EngineMode.CLAMSCAN and self.clamscan_path and total > 1:
-            return self._scan_files_batch_clamscan(
+            summary = self._scan_files_batch_clamscan(
                 file_paths=file_paths,
                 progress_callback=progress_callback,
                 detection_callback=detection_callback,
                 cancel_token=cancel_token,
             )
+            summary.duration_seconds = time.time() - start_time
+            return summary
 
         # File-by-file scanning (used for clamd socket or single files)
         for idx, file_path in enumerate(file_paths, start=1):
@@ -284,6 +289,7 @@ class ClamAVEngine:
             else:
                 summary.error_files += 1
 
+        summary.duration_seconds = time.time() - start_time
         return summary
 
     def _scan_files_batch_clamscan(

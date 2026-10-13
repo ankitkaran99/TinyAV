@@ -41,6 +41,8 @@ class QuickScanWindow(tk.Toplevel):
         self.cancel_event = threading.Event()
         self.detections: List[ScanDetection] = []
         self.ui_queue = queue.Queue()
+        self.scan_start_time = 0.0
+        self._timer_after_id: Optional[str] = None
 
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -64,12 +66,16 @@ class QuickScanWindow(tk.Toplevel):
         mid_frame = ttk.Frame(self, padding=(12, 4))
         mid_frame.grid(row=1, column=0, sticky="ew")
         mid_frame.columnconfigure(0, weight=1)
+        mid_frame.columnconfigure(1, weight=0)
 
         self.progress_bar = ttk.Progressbar(mid_frame, orient="horizontal", mode="indeterminate")
-        self.progress_bar.grid(row=0, column=0, sticky="ew", pady=3)
+        self.progress_bar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=3)
 
         self.status_lbl = ttk.Label(mid_frame, text="Initializing scan...")
         self.status_lbl.grid(row=1, column=0, sticky="w", pady=2)
+
+        self.duration_lbl = ttk.Label(mid_frame, text="Duration: 0.0s", font=("Segoe UI", 9))
+        self.duration_lbl.grid(row=1, column=1, sticky="e", pady=2)
 
         # Detections Treeview
         tree_frame = ttk.LabelFrame(self, text="Detections", padding=(8, 6))
@@ -109,12 +115,48 @@ class QuickScanWindow(tk.Toplevel):
 
     def start_scan(self) -> None:
         self.is_scanning = True
+        self.scan_start_time = time.time()
+        self.duration_lbl.config(text="Duration: 0.0s")
         self.progress_bar.start(10)
+        self._schedule_duration_update()
         threading.Thread(
             target=self._scan_thread,
             daemon=True,
             name="TinyAV-QuickScanWorker",
         ).start()
+
+    def _cancel_duration_timer(self) -> None:
+        if self._timer_after_id:
+            try:
+                self.after_cancel(self._timer_after_id)
+            except Exception:
+                pass
+            self._timer_after_id = None
+
+    def _schedule_duration_update(self) -> None:
+        self._cancel_duration_timer()
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:
+            return
+
+        if not self.is_scanning or self.scan_start_time <= 0:
+            return
+
+        elapsed = max(0.0, time.time() - self.scan_start_time)
+        if elapsed < 60:
+            formatted = f"{elapsed:.1f}s"
+        else:
+            mins = int(elapsed // 60)
+            secs = elapsed % 60
+            formatted = f"{mins}m {secs:04.1f}s"
+
+        try:
+            self.duration_lbl.config(text=f"Duration: {formatted}")
+            self._timer_after_id = self.after(200, self._schedule_duration_update)
+        except Exception:
+            pass
 
     def _collect_files(self) -> List[str]:
         files = []
@@ -145,7 +187,8 @@ class QuickScanWindow(tk.Toplevel):
             self.ui_queue.put(("PREPARED", total))
 
             if total == 0:
-                summary = ScanSummary(scanned_files=0)
+                dur = time.time() - self.scan_start_time if self.scan_start_time > 0 else 0.0
+                summary = ScanSummary(scanned_files=0, duration_seconds=dur)
                 self.ui_queue.put(("FINISHED", summary))
                 return
 
@@ -161,10 +204,12 @@ class QuickScanWindow(tk.Toplevel):
                 detection_callback=det_cb,
                 cancel_token=self.cancel_event,
             )
+            summary.duration_seconds = time.time() - self.scan_start_time if self.scan_start_time > 0 else 0.0
             self.ui_queue.put(("FINISHED", summary))
         except Exception as exc:
             logger.error(f"QuickScan thread failed: {exc}")
-            summary = ScanSummary(scanned_files=0, error_files=1)
+            dur = time.time() - self.scan_start_time if self.scan_start_time > 0 else 0.0
+            summary = ScanSummary(scanned_files=0, error_files=1, duration_seconds=dur)
             self.ui_queue.put(("FINISHED", summary))
 
     def _process_queue(self) -> None:
@@ -186,10 +231,19 @@ class QuickScanWindow(tk.Toplevel):
                     self.detections.append(det)
                     self.tree.insert("", "end", values=(det.file_path, det.threat_name, "Detected"))
                 elif msg == "FINISHED":
+                    self._cancel_duration_timer()
                     summary: ScanSummary = data
                     self.is_scanning = False
                     self.cancel_btn.config(state="disabled")
                     self.close_btn.config(state="normal")
+                    dur = max(0.0, summary.duration_seconds)
+                    if dur < 60:
+                        elapsed = f"{dur:.1f}s"
+                    else:
+                        mins = int(dur // 60)
+                        secs = dur % 60
+                        elapsed = f"{mins}m {secs:04.1f}s"
+                    self.duration_lbl.config(text=f"Duration: {elapsed}")
                     if summary.cancelled:
                         self.status_lbl.config(text=f"Cancelled ({summary.scanned_files} scanned)")
                     elif summary.infected_files > 0:
@@ -233,6 +287,7 @@ class QuickScanWindow(tk.Toplevel):
                 pass
 
     def _on_close(self) -> None:
+        self._cancel_duration_timer()
         if self.is_scanning:
             self.cancel_event.set()
             self.engine.cancel_active_scan()

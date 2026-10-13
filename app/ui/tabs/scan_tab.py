@@ -37,6 +37,7 @@ class ScanTab(ttk.Frame):
         self.current_scan_files: List[str] = []
         self.current_detections: List[ScanDetection] = []
         self.scan_start_time = 0.0
+        self._timer_after_id: Optional[str] = None
 
         self._build_ui()
         self._refresh_drive_list()
@@ -237,12 +238,46 @@ class ScanTab(ttk.Frame):
 
         self.on_scan_state_change("scanning")
         self.scan_start_time = time.time()
+        self._schedule_duration_update()
 
         threading.Thread(
             target=self._scan_worker,
             daemon=True,
             name="TinyAV-ScanWorker",
         ).start()
+
+    def _cancel_duration_timer(self) -> None:
+        if self._timer_after_id:
+            try:
+                self.after_cancel(self._timer_after_id)
+            except Exception:
+                pass
+            self._timer_after_id = None
+
+    def _schedule_duration_update(self) -> None:
+        self._cancel_duration_timer()
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:
+            return
+
+        if not self.is_scanning or self.scan_start_time <= 0:
+            return
+
+        elapsed = max(0.0, time.time() - self.scan_start_time)
+        if elapsed < 60:
+            formatted = f"{elapsed:.1f}s"
+        else:
+            mins = int(elapsed // 60)
+            secs = elapsed % 60
+            formatted = f"{mins}m {secs:04.1f}s"
+
+        try:
+            self.time_lbl.config(text=f"Duration: {formatted}")
+            self._timer_after_id = self.after(200, self._schedule_duration_update)
+        except Exception:
+            pass
 
     def cancel_scan(self) -> None:
         if self.is_scanning:
@@ -326,7 +361,8 @@ class ScanTab(ttk.Frame):
             self.ui_queue.put(("SCAN_PREPARED", total_files))
 
             if total_files == 0:
-                summary = ScanSummary(scanned_files=0, cancelled=self.cancel_event.is_set())
+                dur = time.time() - self.scan_start_time if self.scan_start_time > 0 else 0.0
+                summary = ScanSummary(scanned_files=0, cancelled=self.cancel_event.is_set(), duration_seconds=dur)
                 self.ui_queue.put(("SCAN_FINISHED", summary))
                 return
 
@@ -342,11 +378,12 @@ class ScanTab(ttk.Frame):
                 detection_callback=on_detection,
                 cancel_token=self.cancel_event,
             )
-            summary.duration_seconds = time.time() - self.scan_start_time
+            summary.duration_seconds = time.time() - self.scan_start_time if self.scan_start_time > 0 else 0.0
             self.ui_queue.put(("SCAN_FINISHED", summary))
         except Exception as exc:
             logger.error(f"Scan worker encountered an unhandled error: {exc}")
-            summary = ScanSummary(scanned_files=0, error_files=1, cancelled=False)
+            dur = time.time() - self.scan_start_time if self.scan_start_time > 0 else 0.0
+            summary = ScanSummary(scanned_files=0, error_files=1, cancelled=False, duration_seconds=dur)
             self.ui_queue.put(("SCAN_FINISHED", summary))
 
     def handle_ui_event(self, event_type: str, data: any) -> None:
@@ -373,12 +410,20 @@ class ScanTab(ttk.Frame):
             self.threats_lbl.config(text=f"Infected: {count}", foreground="#dc3545")
 
         elif event_type == "SCAN_FINISHED":
+            self._cancel_duration_timer()
             summary: ScanSummary = data
             self.is_scanning = False
             self.start_btn.config(state="normal")
             self.cancel_btn.config(state="disabled")
 
-            elapsed = f"{summary.duration_seconds:.1f}s"
+            dur = max(0.0, summary.duration_seconds)
+            if dur < 60:
+                elapsed = f"{dur:.1f}s"
+            else:
+                mins = int(dur // 60)
+                secs = dur % 60
+                elapsed = f"{mins}m {secs:04.1f}s"
+
             self.scanned_lbl.config(text=f"Scanned: {summary.scanned_files}")
             self.errors_lbl.config(text=f"Errors: {summary.error_files}")
             self.time_lbl.config(text=f"Duration: {elapsed}")

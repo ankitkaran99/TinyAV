@@ -60,3 +60,22 @@ def test_scan_excludes_quarantine_directory(tmp_path):
 
     assert legit_file in collected
     assert quar_file not in collected
+
+
+def test_scan_files_duration_tracking():
+    from app.core.engine import EngineMode
+    config = AppConfig()
+    engine = ClamAVEngine(config)
+
+    # Empty files list should still measure duration
+    summary = engine.scan_files([])
+    assert summary.duration_seconds >= 0.0
+
+    # Test file-by-file path with mocked scan_single_file
+    engine.mode = EngineMode.CLAMD
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(engine, "scan_single_file", lambda p: ("OK", None, None))
+        summary = engine.scan_files(["dummy_file1.txt", "dummy_file2.txt"])
+        assert summary.duration_seconds >= 0.0
+        assert summary.scanned_files == 2
+
