@@ -181,9 +181,12 @@ TinyAV/
 │   ├── test_folder_watcher.py
 │   ├── test_process_scanner.py
 │   ├── test_quarantine.py
-│   └── test_settings.py
+│   ├── test_settings.py
+│   └── test_startup.py
 ├── main.py                      # Main application entry point & CLI handler
 ├── requirements.txt             # Python dependencies
+├── setup_startup.bat            # Windows startup & desktop shortcuts setup script
+├── start_tray.vbs               # Windowless zero-console tray launcher
 └── README.md                    # Project documentation
 ```
 
@@ -225,6 +228,16 @@ TinyAV/
    ```powershell
    python main.py --minimized
    ```
+   Or simply double-click **`start_tray.vbs`** for an instant windowless launch directly into the system tray!
+
+5. **Auto-Start at Windows Login (One-Click Setup)**:
+   - Double-click **`setup_startup.bat`** to open the interactive setup menu, or run from terminal:
+     ```cmd
+     setup_startup.bat --enable
+     ```
+   - This automatically creates a shortcut in `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\TinyAV.lnk` pointing to `pythonw.exe` with `--minimized` and the custom shield icon.
+   - TinyAV will now automatically launch silently in the background at every Windows login directly in your system tray without showing a black console window!
+   - You can also create a Desktop shortcut (`setup_startup.bat --desktop`) or disable auto-start anytime (`setup_startup.bat --disable`).
 
 ---
 

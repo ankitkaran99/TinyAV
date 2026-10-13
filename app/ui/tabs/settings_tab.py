@@ -14,6 +14,11 @@ from app.platform_win.context_menu import (
     register_context_menu_elevated,
     unregister_context_menu_elevated,
 )
+from app.platform_win.startup import (
+    disable_startup,
+    enable_startup,
+    is_startup_registered,
+)
 
 logger = get_logger()
 
@@ -153,8 +158,8 @@ class SettingsTab(ttk.Frame):
         ttk.Button(rt_btn_frame, text="Add Custom Folder...", command=self._add_custom_watched_dir).pack(side="left", padx=4)
         ttk.Button(rt_btn_frame, text="Remove Selected", command=self._remove_watched_dir).pack(side="left", padx=4)
 
-        # Section 5: Windows Explorer Context Menu
-        sec_shell = ttk.LabelFrame(scrollable_frame, text="Windows Explorer Integration", padding=(10, 8))
+        # Section 5: Windows Explorer & Auto-Start Integration
+        sec_shell = ttk.LabelFrame(scrollable_frame, text="Windows Explorer & Auto-Start Integration", padding=(10, 8))
         sec_shell.pack(fill="x", expand=True, pady=6)
 
         status_row = ttk.Frame(sec_shell)
@@ -167,6 +172,18 @@ class SettingsTab(ttk.Frame):
         btn_shell.pack(anchor="w", pady=6)
         ttk.Button(btn_shell, text="Register Context Menu (UAC)", command=self._register_shell).pack(side="left", padx=(0, 6))
         ttk.Button(btn_shell, text="Unregister Context Menu (UAC)", command=self._unregister_shell).pack(side="left", padx=6)
+
+        ttk.Separator(sec_shell, orient="horizontal").pack(fill="x", pady=6)
+
+        startup_row = ttk.Frame(sec_shell)
+        startup_row.pack(fill="x", pady=2)
+        self.startup_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            startup_row,
+            text="Launch TinyAV automatically at Windows login (Silent tray, zero console windows)",
+            variable=self.startup_var,
+            command=self._on_startup_toggle,
+        ).pack(side="left")
 
         # Section 6: Removable Drives & Logs
         sec_misc = ttk.LabelFrame(scrollable_frame, text="Removable Drives & Diagnostics", padding=(10, 8))
@@ -197,6 +214,7 @@ class SettingsTab(ttk.Frame):
         for d in cfg.watched_directories:
             self.watched_listbox.insert("end", d)
 
+        self.startup_var.set(is_startup_registered())
         self._check_shell_status()
 
     def _add_downloads_dir(self) -> None:
@@ -308,6 +326,24 @@ class SettingsTab(ttk.Frame):
         self._check_shell_status()
         self.after(1000, self._check_shell_status)
         self.after(2500, self._check_shell_status)
+
+    def _on_startup_toggle(self) -> None:
+        if self.startup_var.get():
+            ok, msg = enable_startup()
+            if ok:
+                messagebox.showinfo(
+                    "Auto-Start Enabled",
+                    "TinyAV is configured to start automatically at Windows login.\nIt runs silently in your system tray with zero console windows.",
+                )
+            else:
+                self.startup_var.set(False)
+                messagebox.showerror("Auto-Start Error", f"Failed to enable auto-start:\n{msg}")
+        else:
+            disable_startup()
+            messagebox.showinfo(
+                "Auto-Start Disabled",
+                "TinyAV will no longer start automatically at Windows login.",
+            )
 
     def _clear_remembered_drives(self) -> None:
         self.config_manager.update(remembered_drives={})
