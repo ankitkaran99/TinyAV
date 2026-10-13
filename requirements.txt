@@ -1,0 +1,8 @@
+clamd>=1.0.2
+pystray>=0.19.5
+Pillow>=10.0.0
+pywin32>=306
+psutil>=5.9.0
+apscheduler>=3.10.0
+watchdog>=5.0.0
+pytest>=8.0.0
