@@ -127,3 +127,28 @@ def test_main_window_quarantine_tab_refresh(tmp_path):
         except Exception:
             pass
 
+
+def test_threat_notification_dialog():
+    from app.ui.threat_dialog import ThreatNotificationDialog
+
+    root = tk.Tk()
+    root.withdraw()
+
+    action_called = []
+    diag = ThreatNotificationDialog(
+        file_path="C:\\Downloads\\trojan.exe",
+        threat_name="Win32.Trojan.Generic",
+        auto_quarantined=True,
+        on_action=lambda: action_called.append(True),
+    )
+
+    assert "Threat Alert" in diag.title()
+    diag._on_action_click()
+    assert len(action_called) == 1
+
+    try:
+        root.destroy()
+    except Exception:
+        pass
+
+

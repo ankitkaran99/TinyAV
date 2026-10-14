@@ -19,6 +19,7 @@ from app.ui.tabs.quarantine_tab import QuarantineTab
 from app.ui.tabs.scan_tab import ScanTab
 from app.ui.tabs.settings_tab import SettingsTab
 from app.ui.tabs.update_tab import UpdateTab
+from app.ui.threat_dialog import ThreatNotificationDialog
 from app.ui.tray import TrayManager
 
 logger = get_logger()
@@ -235,6 +236,21 @@ class MainWindow:
                     self.scan_tab.status_label.config(
                         text=f"Threat auto-quarantined: {fname} ({threat})"
                     )
+
+                # Show prominent desktop threat alert dialog
+                try:
+                    ThreatNotificationDialog(
+                        file_path=path,
+                        threat_name=threat,
+                        auto_quarantined=True,
+                        on_action=lambda: (
+                            self.show_window(),
+                            self.notebook.select(1),
+                            self.quarantine_tab.refresh_items(),
+                        ),
+                    )
+                except Exception as diag_err:
+                    logger.debug(f"Could not open ThreatNotificationDialog: {diag_err}")
             else:
                 msg = f"Infected file detected: '{fname}' ({threat})!"
                 self.tray.notify("Real-Time Threat Detected", msg)
@@ -245,6 +261,20 @@ class MainWindow:
                     self.scan_tab.status_label.config(
                         text=f"Real-time threat detected: {fname} ({threat})!"
                     )
+
+                # Show prominent desktop threat alert dialog
+                try:
+                    ThreatNotificationDialog(
+                        file_path=path,
+                        threat_name=threat,
+                        auto_quarantined=False,
+                        on_action=lambda: (
+                            self.show_window(),
+                            self.notebook.select(0),
+                        ),
+                    )
+                except Exception as diag_err:
+                    logger.debug(f"Could not open ThreatNotificationDialog: {diag_err}")
         elif event_type == "REALTIME_CLEAN":
             path = data
             fname = os.path.basename(path)
