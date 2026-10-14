@@ -245,7 +245,9 @@ class ClamDServiceManager:
         db_dir = os.path.join(target_dir, "database")
         os.makedirs(db_dir, exist_ok=True)
 
-        bin_path = f'"{clamd_exe}" --service-mode -c "{clamd_conf}"'
+        # MANDATORY: ClamAV on Windows checks if (daemon_mode) before calling StartServiceCtrlDispatcher!
+        # Both --daemon and --service-mode MUST be present.
+        bin_path = f'"{clamd_exe}" --daemon --service-mode -c "{clamd_conf}"'
 
         # 2. Stop and remove existing service if present
         cls.uninstall_service_direct()
@@ -288,7 +290,7 @@ class ClamDServiceManager:
 
         # Fallback to raw sc.exe command if Win32 API failed
         if not service_created:
-            raw_cmd = f'sc.exe create {SERVICE_NAME} binPath= "\"{clamd_exe}\" --service-mode -c \"{clamd_conf}\"" start= auto DisplayName= "{DISPLAY_NAME}"'
+            raw_cmd = f'sc.exe create {SERVICE_NAME} binPath= "\"{clamd_exe}\" --daemon --service-mode -c \"{clamd_conf}\"" start= auto DisplayName= "{DISPLAY_NAME}"'
             logger.info(f"Executing fallback: {raw_cmd}")
             res = subprocess.run(raw_cmd, shell=False, capture_output=True, text=True, timeout=15)
             if res.returncode != 0 and "SUCCESS" not in res.stdout.upper():
@@ -357,8 +359,53 @@ class ClamDServiceManager:
         return False, f"Failed to delete service: {out}"
 
     @classmethod
+    def _ensure_service_binpath(cls) -> None:
+        """Fixes existing service registration if --daemon flag is missing from binary path."""
+        try:
+            import win32service
+
+            scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_ALL_ACCESS)
+            try:
+                svc = win32service.OpenService(
+                    scm,
+                    SERVICE_NAME,
+                    win32service.SERVICE_QUERY_CONFIG | win32service.SERVICE_CHANGE_CONFIG,
+                )
+                try:
+                    cfg = win32service.QueryServiceConfig(svc)
+                    current_path = cfg[3]
+                    if "--daemon" not in current_path:
+                        clamav_dir = ClamAVConfigGenerator.detect_clamav_dir() or ""
+                        if clamav_dir:
+                            clamd_exe = os.path.join(clamav_dir, "clamd.exe")
+                            clamd_conf = os.path.join(clamav_dir, "clamd.conf")
+                            new_path = f'"{clamd_exe}" --daemon --service-mode -c "{clamd_conf}"'
+                            win32service.ChangeServiceConfig(
+                                svc,
+                                win32service.SERVICE_NO_CHANGE,
+                                win32service.SERVICE_NO_CHANGE,
+                                win32service.SERVICE_NO_CHANGE,
+                                new_path,
+                                None,
+                                0,
+                                None,
+                                None,
+                                None,
+                                None,
+                            )
+                            logger.info(f"Updated clamd service binary path to include --daemon: {new_path}")
+                finally:
+                    win32service.CloseServiceHandle(svc)
+            finally:
+                win32service.CloseServiceHandle(scm)
+        except Exception as exc:
+            logger.debug(f"Could not auto-update service binary path: {exc}")
+
+    @classmethod
     def start_service_direct(cls) -> Tuple[bool, str]:
         """Directly starts the clamd Windows Service (must be elevated)."""
+        cls._ensure_service_binpath()
+
         # Try Win32 API start
         try:
             import win32serviceutil
@@ -371,7 +418,7 @@ class ClamDServiceManager:
         # Fallback to sc.exe start
         res = subprocess.run(f"sc.exe start {SERVICE_NAME}", shell=False, capture_output=True, text=True, timeout=15)
         out = (res.stdout + res.stderr).strip()
-        if res.returncode == 0 or "START_PENDING" in out.upper() or "RUNNING" in out.upper():
+        if res.returncode == 0 or "START_PENDING" in out.upper() or "RUNNING" in out.upper() or "1056" in out:
             return True, "ClamD service start command sent."
         return False, f"Failed to start service: {out}"
 
