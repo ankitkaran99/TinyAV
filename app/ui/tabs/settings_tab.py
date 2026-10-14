@@ -139,6 +139,9 @@ class SettingsTab(ttk.Frame):
         self.rt_auto_quar_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(sec_rt, text="Automatically quarantine threats detected in watched folders", variable=self.rt_auto_quar_var).pack(anchor="w", pady=2)
 
+        self.notify_clean_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(sec_rt, text="Notify via system tray when a downloaded file is verified clean", variable=self.notify_clean_var).pack(anchor="w", pady=2)
+
         ttk.Label(sec_rt, text="Watched Directories:").pack(anchor="w", pady=(6, 2))
 
         lb_frame = ttk.Frame(sec_rt)
@@ -208,6 +211,7 @@ class SettingsTab(ttk.Frame):
         self.interval_var.set(cfg.update_interval_hours)
         self.rt_enabled_var.set(cfg.realtime_watch_enabled)
         self.rt_auto_quar_var.set(cfg.realtime_auto_quarantine)
+        self.notify_clean_var.set(cfg.notify_on_clean)
 
         # Populate watched directories listbox
         self.watched_listbox.delete(0, "end")
@@ -385,6 +389,7 @@ class SettingsTab(ttk.Frame):
             realtime_watch_enabled=self.rt_enabled_var.get(),
             watched_directories=watched_dirs,
             realtime_auto_quarantine=self.rt_auto_quar_var.get(),
+            notify_on_clean=self.notify_clean_var.get(),
         )
 
         self.update_manager.reschedule(

@@ -78,6 +78,7 @@ class MainWindow:
             quarantine_manager=self.quarantine_manager,
             on_threat_detected=lambda path, threat, quar: self.ui_queue.put(("REALTIME_THREAT", (path, threat, quar))),
             on_scan_clean=lambda path: self.ui_queue.put(("REALTIME_CLEAN", path)),
+            on_scan_start=lambda path: self.ui_queue.put(("REALTIME_START", path)),
         )
         self.folder_watcher.start()
 
@@ -193,6 +194,14 @@ class MainWindow:
             self.update_tab.handle_ui_event(event_type, data)
         elif event_type == "QUARANTINE_UPDATED":
             self.quarantine_tab.refresh_items()
+        elif event_type == "REALTIME_START":
+            path = data
+            fname = os.path.basename(path)
+            logger.info(f"Auto-scanning new download: {fname}")
+            if hasattr(self, "scan_tab") and not self.scan_tab.is_scanning:
+                self.scan_tab.status_label.config(
+                    text=f"Auto-scanning download: {fname}..."
+                )
         elif event_type == "REALTIME_THREAT":
             path, threat, auto_quar = data
             self._set_app_state("threat")
@@ -201,16 +210,33 @@ class MainWindow:
                 msg = f"Infected file '{fname}' ({threat}) was automatically neutralized and moved to Quarantine."
                 self.tray.notify("Threat Auto-Quarantined", msg)
                 self.quarantine_tab.refresh_items()
+                if hasattr(self, "scan_tab") and not self.scan_tab.is_scanning:
+                    self.scan_tab.status_label.config(
+                        text=f"Threat auto-quarantined: {fname} ({threat})"
+                    )
             else:
                 msg = f"Infected file detected: '{fname}' ({threat})!"
                 self.tray.notify("Real-Time Threat Detected", msg)
                 self.show_window()
                 self.notebook.select(0)
                 self.scan_tab.tree.insert("", "end", values=(path, threat, "Detected (Realtime)"))
+                if hasattr(self, "scan_tab") and not self.scan_tab.is_scanning:
+                    self.scan_tab.status_label.config(
+                        text=f"Real-time threat detected: {fname} ({threat})!"
+                    )
         elif event_type == "REALTIME_CLEAN":
             path = data
             fname = os.path.basename(path)
-            logger.debug(f"Verified clean: {fname}")
+            logger.info(f"Verified clean: {fname}")
+            if hasattr(self, "scan_tab") and not self.scan_tab.is_scanning:
+                self.scan_tab.status_label.config(
+                    text=f"Auto-scan clean: {fname}"
+                )
+            if self.config_manager.config.notify_on_clean:
+                self.tray.notify(
+                    "Download Verified Safe",
+                    f"'{fname}' was scanned and verified clean.",
+                )
         elif event_type == "TRAY_ACTION":
             action = data
             logger.info(f"Processing TRAY_ACTION: {action}")

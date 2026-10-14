@@ -116,3 +116,86 @@ def test_folder_watcher_quarantine_exclusion():
         # Temp file is excluded
         temp_file = os.path.join(watched_dir, "download.crdownload")
         assert watcher.is_path_watched(temp_file) is False
+
+
+def test_folder_watcher_trailing_edge_debounce_and_clean_notification():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        watched_dir = os.path.join(tmpdir, "Downloads")
+        os.makedirs(watched_dir, exist_ok=True)
+
+        cfg = AppConfig(
+            watched_directories=[watched_dir],
+            realtime_watch_enabled=True,
+            notify_on_clean=True,
+        )
+        cfg_mgr = ConfigManager()
+        cfg_mgr.config = cfg
+
+        engine = MagicMock(spec=ClamAVEngine)
+        engine.scan_single_file.return_value = ("OK", None, None)
+        quarantine_mgr = MagicMock(spec=QuarantineManager)
+
+        clean_scans = []
+        started_scans = []
+        watcher = RealtimeFolderWatcher(
+            cfg_mgr,
+            engine,
+            quarantine_mgr,
+            on_scan_clean=lambda p: clean_scans.append(p),
+            on_scan_start=lambda p: started_scans.append(p),
+            debounce_window=0.3,
+        )
+
+        test_file = os.path.join(watched_dir, "clean_download.zip")
+
+        # Simulate progressive download chunks triggering multiple modify events
+        with open(test_file, "wb") as f:
+            f.write(b"chunk1")
+        watcher.queue_scan(test_file)
+        time.sleep(0.1)
+
+        with open(test_file, "ab") as f:
+            f.write(b"chunk2")
+        watcher.queue_scan(test_file)
+        time.sleep(0.1)
+
+        with open(test_file, "ab") as f:
+            f.write(b"chunk3-final")
+        watcher.queue_scan(test_file)
+
+        # Wait for trailing edge quiet period (0.3s) + settle + scan
+        time.sleep(0.9)
+        watcher.stop()
+
+        # Engine should have been called exactly once after writes settled
+        assert engine.scan_single_file.call_count == 1
+        assert len(started_scans) == 1
+        assert len(clean_scans) == 1
+        assert clean_scans[0] == test_file
+
+
+def test_folder_watcher_recursive_and_ads_handling():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        watched_dir = os.path.join(tmpdir, "Downloads")
+        sibling_dir = os.path.join(tmpdir, "Downloads_Backup")
+        sub_dir = os.path.join(watched_dir, "Torrents", "Software")
+        os.makedirs(sub_dir, exist_ok=True)
+        os.makedirs(sibling_dir, exist_ok=True)
+
+        cfg = AppConfig(watched_directories=[watched_dir])
+        cfg_mgr = ConfigManager()
+        cfg_mgr.config = cfg
+
+        watcher = RealtimeFolderWatcher(cfg_mgr, MagicMock(), MagicMock())
+
+        # Subdirectory file should be watched
+        nested_file = os.path.join(sub_dir, "installer.exe")
+        assert watcher.is_path_watched(nested_file) is True
+
+        # Sibling directory starting with same prefix should NOT be watched
+        sibling_file = os.path.join(sibling_dir, "file.exe")
+        assert watcher.is_path_watched(sibling_file) is False
+
+        # Alternate Data Stream (Zone.Identifier) should be recognized as watched
+        ads_path = os.path.join(watched_dir, "installer.exe:Zone.Identifier")
+        assert watcher.is_path_watched(ads_path) is True
