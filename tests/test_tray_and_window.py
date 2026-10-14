@@ -75,6 +75,55 @@ def test_main_window_queue_processing_resilience(tmp_path):
 
         # Clean up window
         try:
-            root.destroy()
+            window.exit_app()
         except Exception:
             pass
+
+
+def test_main_window_quarantine_tab_refresh(tmp_path):
+    root = tk.Tk()
+    root.withdraw()
+
+    cfg_mgr = ConfigManager(config_path=str(tmp_path / "cfg.json"))
+    engine = ClamAVEngine(cfg_mgr.config)
+    quar_dir = str(tmp_path / "quar")
+    quar_mgr = QuarantineManager(quarantine_dir=quar_dir)
+    upd_mgr = UpdateManager(cfg_mgr, engine)
+
+    # Pre-populate a quarantined file in the vault
+    test_infected = str(tmp_path / "test_malware.exe")
+    with open(test_infected, "w") as f:
+        f.write("infected")
+    quar_mgr.quarantine_file(test_infected, "Test.Threat.1")
+
+    with patch("app.ui.main_window.TrayManager"):
+        window = MainWindow(
+            config_manager=cfg_mgr,
+            engine=engine,
+            quarantine_manager=quar_mgr,
+            update_manager=upd_mgr,
+            start_minimized=True,
+        )
+
+        # Tab should already have the item upon startup
+        assert len(window.quarantine_tab.tree.get_children()) == 1
+
+        # Simulate a new threat quarantined in realtime
+        test_infected2 = str(tmp_path / "test_malware2.exe")
+        with open(test_infected2, "w") as f:
+            f.write("infected2")
+        quar_mgr.quarantine_file(test_infected2, "Test.Threat.2")
+
+        # Post REALTIME_THREAT event to queue
+        window.ui_queue.put(("REALTIME_THREAT", (test_infected2, "Test.Threat.2", True)))
+        window._process_queue()
+
+        # Both items should now be visible in quarantine tab
+        assert len(window.quarantine_tab.tree.get_children()) == 2
+
+        # Clean up window
+        try:
+            window.exit_app()
+        except Exception:
+            pass
+

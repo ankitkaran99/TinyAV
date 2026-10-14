@@ -30,12 +30,20 @@ class QuarantineTab(ttk.Frame):
             font=("Segoe UI", 11, "bold"),
         ).grid(row=0, column=0, sticky="w")
 
+        self.count_lbl = ttk.Label(
+            header_frame,
+            text="Loading vault items...",
+            font=("Segoe UI", 9, "bold"),
+            foreground="#555555",
+        )
+        self.count_lbl.grid(row=0, column=1, sticky="e")
+
         ttk.Label(
             header_frame,
             text="Infected files stored safely here are neutralized and renamed with metadata preserved.",
             font=("Segoe UI", 8),
             foreground="#555555",
-        ).grid(row=1, column=0, sticky="w", pady=(2, 0))
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
         # Table Frame
         table_frame = ttk.Frame(self, padding=(10, 0))
@@ -93,6 +101,15 @@ class QuarantineTab(ttk.Frame):
                 iid=item.id,
                 values=(short_id, item.threat_name, item.original_path, item.quarantine_time, size_kb),
             )
+
+        count = len(items)
+        if hasattr(self, "count_lbl"):
+            if count == 0:
+                self.count_lbl.config(text="Vault is empty (0 threats)", foreground="#28a745")
+            elif count == 1:
+                self.count_lbl.config(text="1 quarantined threat secured", foreground="#d9534f")
+            else:
+                self.count_lbl.config(text=f"{count} quarantined threats secured", foreground="#d9534f")
 
     def _restore_selected(self) -> None:
         selected_ids = self.tree.selection()

@@ -1,4 +1,6 @@
+import os
 import queue
+import time
 import tkinter as tk
 from tkinter import ttk
 from typing import Optional
@@ -138,6 +140,18 @@ class MainWindow:
         self.notebook.add(self.update_tab, text="  Updates & Signatures  ")
         self.notebook.add(self.settings_tab, text="  Settings  ")
 
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+    def _on_tab_changed(self, event=None) -> None:
+        try:
+            selected = self.notebook.select()
+            if selected == str(self.quarantine_tab):
+                self.quarantine_tab.refresh_items()
+            elif selected == str(self.update_tab):
+                self.update_tab.refresh_info()
+        except Exception as exc:
+            logger.debug(f"Error handling tab switch: {exc}")
+
     def _set_app_state(self, state: str) -> None:
         """Update tray icon according to app state: 'idle' | 'scanning' | 'updating' | 'threat'."""
         self.tray.set_state(state)
@@ -186,6 +200,11 @@ class MainWindow:
                     user32.SetForegroundWindow(hwnd)
                 except Exception as w32_err:
                     logger.debug(f"Win32 ShowWindow restore fallback: {w32_err}")
+
+            try:
+                self.quarantine_tab.refresh_items()
+            except Exception:
+                pass
         except Exception as exc:
             logger.error(f"Error in show_window: {exc}", exc_info=True)
 
