@@ -459,32 +459,67 @@ class SettingsTab(ttk.Frame):
             )
 
     def _start_clamd_service(self) -> None:
-        from app.platform_win.service_manager import ClamDServiceManager
+        import time
+        from app.platform_win.service_manager import ClamDServiceManager, wait_for_clamd_socket
         self.btn_start_service.config(state="disabled")
-        self.clamd_service_status_lbl.config(text="Starting service...", foreground="#17a2b8")
+        self.clamd_service_status_lbl.config(text="Starting service (loading signatures)...", foreground="#17a2b8")
 
         def _do_start():
             ok, msg = ClamDServiceManager.start_service_elevated()
+            if not ok:
+                def _err():
+                    self._check_clamd_service_status()
+                    messagebox.showerror("TinyAV", msg)
+                self.after(0, _err)
+                return
+
+            # Poll for up to 25 seconds while signatures load into RAM
+            for _ in range(25):
+                time.sleep(1.0)
+                status = ClamDServiceManager.get_service_status()
+                if status == "RUNNING":
+                    break
+
+            # Verify socket
+            ready = wait_for_clamd_socket(
+                host=self.clamd_host_var.get().strip() or "127.0.0.1",
+                port=int(self.clamd_port_var.get() or 3310),
+                timeout=10.0,
+            )
+
             def _after():
                 self._check_clamd_service_status()
-                if not ok:
-                    messagebox.showerror("TinyAV", msg)
+                if ready and not self.prefer_clamd_var.get():
+                    self.prefer_clamd_var.set(True)
+                    self.save_values()
+
             self.after(0, _after)
 
         threading.Thread(target=_do_start, daemon=True).start()
 
     def _stop_clamd_service(self) -> None:
+        import time
         from app.platform_win.service_manager import ClamDServiceManager
         self.btn_stop_service.config(state="disabled")
         self.clamd_service_status_lbl.config(text="Stopping service...", foreground="#17a2b8")
 
         def _do_stop():
             ok, msg = ClamDServiceManager.stop_service_elevated()
-            def _after():
-                self._check_clamd_service_status()
-                if not ok:
+            if not ok:
+                def _err():
+                    self._check_clamd_service_status()
                     messagebox.showerror("TinyAV", msg)
-            self.after(0, _after)
+                self.after(0, _err)
+                return
+
+            # Poll for up to 8 seconds until STOPPED
+            for _ in range(8):
+                time.sleep(1.0)
+                status = ClamDServiceManager.get_service_status()
+                if status == "STOPPED":
+                    break
+
+            self.after(0, self._check_clamd_service_status)
 
         threading.Thread(target=_do_stop, daemon=True).start()
 
