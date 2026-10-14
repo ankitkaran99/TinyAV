@@ -1,5 +1,6 @@
 import os
 import subprocess
+import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable
@@ -96,6 +97,49 @@ class SettingsTab(ttk.Frame):
         ttk.Checkbutton(sec_clam, text="Prefer clamd daemon over clamscan CLI", variable=self.prefer_clamd_var).grid(
             row=2, column=0, columnspan=2, sticky="w", pady=4
         )
+
+        # clamd Windows Service Subframe / Card
+        service_card = ttk.LabelFrame(sec_clam, text="ClamAV Background Service (clamd.exe)", padding=(8, 6))
+        service_card.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 4))
+        service_card.columnconfigure(1, weight=1)
+
+        # Row 0: Status
+        ttk.Label(service_card, text="Windows Service Status:").grid(row=0, column=0, sticky="w", pady=3)
+        self.clamd_service_status_lbl = ttk.Label(service_card, text="Checking...", font=("Segoe UI", 9, "bold"))
+        self.clamd_service_status_lbl.grid(row=0, column=1, sticky="w", padx=6, pady=3)
+        ttk.Button(service_card, text="Refresh", command=self._check_clamd_service_status).grid(row=0, column=2, sticky="e", pady=3)
+
+        # Row 1: Action buttons
+        svc_btn_box = ttk.Frame(service_card)
+        svc_btn_box.grid(row=1, column=0, columnspan=3, sticky="w", pady=(4, 2))
+
+        self.btn_install_service = ttk.Button(
+            svc_btn_box,
+            text="⚡ Install & Start clamd Service (1-Click UAC)",
+            command=self._one_click_install_service,
+        )
+        self.btn_install_service.pack(side="left", padx=(0, 6))
+
+        self.btn_start_service = ttk.Button(
+            svc_btn_box,
+            text="Start Service",
+            command=self._start_clamd_service,
+        )
+        self.btn_start_service.pack(side="left", padx=4)
+
+        self.btn_stop_service = ttk.Button(
+            svc_btn_box,
+            text="Stop Service",
+            command=self._stop_clamd_service,
+        )
+        self.btn_stop_service.pack(side="left", padx=4)
+
+        self.btn_uninstall_service = ttk.Button(
+            svc_btn_box,
+            text="Uninstall Service",
+            command=self._uninstall_clamd_service,
+        )
+        self.btn_uninstall_service.pack(side="left", padx=4)
 
         # Section 2: Quarantine
         sec_quar = ttk.LabelFrame(scrollable_frame, text="Quarantine Vault Location", padding=(10, 8))
@@ -220,6 +264,7 @@ class SettingsTab(ttk.Frame):
 
         self.startup_var.set(is_startup_registered())
         self._check_shell_status()
+        self._check_clamd_service_status()
 
     def _add_downloads_dir(self) -> None:
         user_home = os.environ.get("USERPROFILE") or os.path.expanduser("~")
@@ -305,6 +350,133 @@ class SettingsTab(ttk.Frame):
                 messagebox.showerror("Error", "clamd did not respond with PONG.")
         except Exception as exc:
             messagebox.showerror("Connection Failed", f"Could not connect to clamd at {host}:{port}:\n{exc}")
+
+    def _check_clamd_service_status(self) -> None:
+        from app.platform_win.service_manager import ClamDServiceManager
+        status = ClamDServiceManager.get_service_status()
+        if status == "RUNNING":
+            self.clamd_service_status_lbl.config(text="Running (Active)", foreground="#28a745")
+            self.btn_start_service.config(state="disabled")
+            self.btn_stop_service.config(state="normal")
+            self.btn_uninstall_service.config(state="normal")
+            self.btn_install_service.config(text="⚡ Reinstall Service (1-Click UAC)")
+        elif status == "STOPPED":
+            self.clamd_service_status_lbl.config(text="Stopped", foreground="#fd7e14")
+            self.btn_start_service.config(state="normal")
+            self.btn_stop_service.config(state="disabled")
+            self.btn_uninstall_service.config(state="normal")
+            self.btn_install_service.config(text="⚡ Reinstall Service (1-Click UAC)")
+        elif status == "NOT_INSTALLED":
+            self.clamd_service_status_lbl.config(text="Not Installed", foreground="#dc3545")
+            self.btn_start_service.config(state="disabled")
+            self.btn_stop_service.config(state="disabled")
+            self.btn_uninstall_service.config(state="disabled")
+            self.btn_install_service.config(text="⚡ Install & Start clamd Service (1-Click UAC)")
+        elif "PENDING" in status:
+            self.clamd_service_status_lbl.config(text=f"{status.title()}...", foreground="#17a2b8")
+        else:
+            self.clamd_service_status_lbl.config(text=status, foreground="#6c757d")
+
+    def _one_click_install_service(self) -> None:
+        target_dir = self.bin_dir_var.get().strip()
+        if not target_dir:
+            from app.core.config_generator import ClamAVConfigGenerator
+            detected = ClamAVConfigGenerator.detect_clamav_dir(self.config_manager, self.engine)
+            if detected:
+                target_dir = detected
+                self.bin_dir_var.set(detected)
+            else:
+                messagebox.showerror(
+                    "ClamAV Not Found",
+                    "Please configure or auto-detect the ClamAV Bin Directory before installing the service.",
+                )
+                return
+
+        from app.platform_win.service_manager import ClamDServiceManager, wait_for_clamd_socket
+        self.clamd_service_status_lbl.config(text="Installing service (waiting for UAC)...", foreground="#17a2b8")
+        self.btn_install_service.config(state="disabled")
+
+        def _do_install():
+            ok, msg = ClamDServiceManager.install_service_elevated(target_dir)
+            if not ok:
+                self.after(0, lambda: self._on_install_failed(msg))
+                return
+
+            # Wait for service status and socket response
+            self.after(0, lambda: self.clamd_service_status_lbl.config(text="Service started. Waiting for daemon socket...", foreground="#17a2b8"))
+            ready = wait_for_clamd_socket(
+                host=self.clamd_host_var.get().strip() or "127.0.0.1",
+                port=int(self.clamd_port_var.get() or 3310),
+                timeout=20.0,
+            )
+            self.after(0, lambda: self._on_install_complete(ready, target_dir))
+
+        threading.Thread(target=_do_install, daemon=True).start()
+
+    def _on_install_failed(self, error_msg: str) -> None:
+        self.btn_install_service.config(state="normal")
+        self._check_clamd_service_status()
+        messagebox.showerror("Service Installation Error", error_msg)
+
+    def _on_install_complete(self, socket_ready: bool, target_dir: str) -> None:
+        self.btn_install_service.config(state="normal")
+        self._check_clamd_service_status()
+        if socket_ready:
+            self.prefer_clamd_var.set(True)
+            self.save_values()
+            messagebox.showinfo(
+                "clamd Service Installed",
+                "ClamAV ClamD service was installed and is running!\n\n"
+                "✓ Daemon socket verified (PONG)\n"
+                "✓ Prefer clamd daemon enabled\n"
+                "✓ Startup set to Automatic at Windows boot\n\n"
+                "High-speed daemon scanning is now fully active.",
+            )
+        else:
+            self._check_clamd_service_status()
+            messagebox.showinfo(
+                "clamd Service Installed",
+                "ClamAV ClamD service was registered and started.\n\n"
+                "Note: The daemon may take up to 30 seconds to load large database signatures into memory.\n"
+                "Click 'Test clamd Socket' or 'Refresh' once signature loading completes.",
+            )
+
+    def _start_clamd_service(self) -> None:
+        from app.platform_win.service_manager import ClamDServiceManager
+        ok, msg = ClamDServiceManager.start_service_elevated()
+        if not ok:
+            messagebox.showerror("TinyAV", msg)
+        else:
+            self.clamd_service_status_lbl.config(text="Starting service...", foreground="#17a2b8")
+            self.after(1500, self._check_clamd_service_status)
+            self.after(4000, self._check_clamd_service_status)
+
+    def _stop_clamd_service(self) -> None:
+        from app.platform_win.service_manager import ClamDServiceManager
+        ok, msg = ClamDServiceManager.stop_service_elevated()
+        if not ok:
+            messagebox.showerror("TinyAV", msg)
+        else:
+            self.clamd_service_status_lbl.config(text="Stopping service...", foreground="#17a2b8")
+            self.after(1500, self._check_clamd_service_status)
+            self.after(4000, self._check_clamd_service_status)
+
+    def _uninstall_clamd_service(self) -> None:
+        if not messagebox.askyesno(
+            "Uninstall clamd Service",
+            "Are you sure you want to uninstall the ClamAV ClamD Windows Service?",
+        ):
+            return
+        from app.platform_win.service_manager import ClamDServiceManager
+        target_dir = self.bin_dir_var.get().strip()
+        ok, msg = ClamDServiceManager.uninstall_service_elevated(target_dir)
+        if not ok:
+            messagebox.showerror("TinyAV", msg)
+        else:
+            messagebox.showinfo("TinyAV", msg)
+            self.clamd_service_status_lbl.config(text="Uninstalling...", foreground="#17a2b8")
+            self.after(1500, self._check_clamd_service_status)
+            self.after(3500, self._check_clamd_service_status)
 
     def _browse_quar_dir(self) -> None:
         d = filedialog.askdirectory(title="Select Quarantine Directory")

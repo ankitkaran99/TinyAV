@@ -42,6 +42,10 @@ def main() -> None:
     parser.add_argument("--unregister-context-menu", action="store_true", help="Unregister Explorer context menu (elevated)")
     parser.add_argument("--generate-clamav-config", type=str, help="Auto-generate optimized freshclam.conf and clamd.conf (elevated)")
     parser.add_argument("--apply-clamav-zip", nargs=2, metavar=("ZIP_PATH", "TARGET_DIR"), help="Extract ClamAV portable zip (elevated)")
+    parser.add_argument("--install-clamd-service", nargs="?", const="", type=str, help="Install and start ClamD Windows service (elevated)")
+    parser.add_argument("--uninstall-clamd-service", nargs="?", const="", type=str, help="Stop and uninstall ClamD Windows service (elevated)")
+    parser.add_argument("--start-clamd-service", action="store_true", help="Start ClamD Windows service (elevated)")
+    parser.add_argument("--stop-clamd-service", action="store_true", help="Stop ClamD Windows service (elevated)")
 
     args = parser.parse_args()
 
@@ -66,6 +70,30 @@ def main() -> None:
         from app.core.binary_updater import ClamAVBinaryUpdater
         zip_path, target_dir = args.apply_clamav_zip
         success, msg, count = ClamAVBinaryUpdater.apply_zip_update_direct(zip_path, target_dir)
+        print(msg)
+        sys.exit(0 if success else 1)
+
+    if args.install_clamd_service is not None:
+        from app.platform_win.service_manager import ClamDServiceManager
+        success, msg = ClamDServiceManager.install_service_direct(args.install_clamd_service or None)
+        print(msg)
+        sys.exit(0 if success else 1)
+
+    if args.uninstall_clamd_service is not None:
+        from app.platform_win.service_manager import ClamDServiceManager
+        success, msg = ClamDServiceManager.uninstall_service_direct(args.uninstall_clamd_service or None)
+        print(msg)
+        sys.exit(0 if success else 1)
+
+    if args.start_clamd_service:
+        from app.platform_win.service_manager import ClamDServiceManager
+        success, msg = ClamDServiceManager.start_service_direct()
+        print(msg)
+        sys.exit(0 if success else 1)
+
+    if args.stop_clamd_service:
+        from app.platform_win.service_manager import ClamDServiceManager
+        success, msg = ClamDServiceManager.stop_service_direct()
         print(msg)
         sys.exit(0 if success else 1)
 
