@@ -402,12 +402,18 @@ class SettingsTab(ttk.Frame):
                 self.after(0, lambda: self._on_install_failed(msg))
                 return
 
-            # Wait for service status and socket response
+            # Verify that service is actually registered in Windows
+            status = ClamDServiceManager.get_service_status()
+            if status == "NOT_INSTALLED":
+                self.after(0, lambda: self._on_install_failed(f"Service was not registered.\n{msg}"))
+                return
+
+            # Wait for daemon socket (loading signatures into memory)
             self.after(0, lambda: self.clamd_service_status_lbl.config(text="Service started. Waiting for daemon socket...", foreground="#17a2b8"))
             ready = wait_for_clamd_socket(
                 host=self.clamd_host_var.get().strip() or "127.0.0.1",
                 port=int(self.clamd_port_var.get() or 3310),
-                timeout=20.0,
+                timeout=25.0,
             )
             self.after(0, lambda: self._on_install_complete(ready, target_dir))
 
@@ -421,45 +427,66 @@ class SettingsTab(ttk.Frame):
     def _on_install_complete(self, socket_ready: bool, target_dir: str) -> None:
         self.btn_install_service.config(state="normal")
         self._check_clamd_service_status()
+        from app.platform_win.service_manager import ClamDServiceManager
+        status = ClamDServiceManager.get_service_status()
+
+        if status == "NOT_INSTALLED":
+            messagebox.showerror(
+                "Installation Failed",
+                "ClamAV ClamD Windows Service could not be registered.\n"
+                "Please verify administrative permissions and consult tinyav.log.",
+            )
+            return
+
         if socket_ready:
             self.prefer_clamd_var.set(True)
             self.save_values()
             messagebox.showinfo(
-                "clamd Service Installed",
+                "clamd Service Installed & Running",
                 "ClamAV ClamD service was installed and is running!\n\n"
-                "✓ Daemon socket verified (PONG)\n"
+                "✓ Windows Service: clamd (Running)\n"
+                "✓ Daemon socket verified (PONG on 127.0.0.1:3310)\n"
                 "✓ Prefer clamd daemon enabled\n"
                 "✓ Startup set to Automatic at Windows boot\n\n"
                 "High-speed daemon scanning is now fully active.",
             )
         else:
-            self._check_clamd_service_status()
             messagebox.showinfo(
                 "clamd Service Installed",
-                "ClamAV ClamD service was registered and started.\n\n"
-                "Note: The daemon may take up to 30 seconds to load large database signatures into memory.\n"
+                f"ClamAV ClamD service is registered (Status: {status.title()}).\n\n"
+                "Note: ClamD takes 15–30 seconds to parse database signatures into memory.\n"
                 "Click 'Test clamd Socket' or 'Refresh' once signature loading completes.",
             )
 
     def _start_clamd_service(self) -> None:
         from app.platform_win.service_manager import ClamDServiceManager
-        ok, msg = ClamDServiceManager.start_service_elevated()
-        if not ok:
-            messagebox.showerror("TinyAV", msg)
-        else:
-            self.clamd_service_status_lbl.config(text="Starting service...", foreground="#17a2b8")
-            self.after(1500, self._check_clamd_service_status)
-            self.after(4000, self._check_clamd_service_status)
+        self.btn_start_service.config(state="disabled")
+        self.clamd_service_status_lbl.config(text="Starting service...", foreground="#17a2b8")
+
+        def _do_start():
+            ok, msg = ClamDServiceManager.start_service_elevated()
+            def _after():
+                self._check_clamd_service_status()
+                if not ok:
+                    messagebox.showerror("TinyAV", msg)
+            self.after(0, _after)
+
+        threading.Thread(target=_do_start, daemon=True).start()
 
     def _stop_clamd_service(self) -> None:
         from app.platform_win.service_manager import ClamDServiceManager
-        ok, msg = ClamDServiceManager.stop_service_elevated()
-        if not ok:
-            messagebox.showerror("TinyAV", msg)
-        else:
-            self.clamd_service_status_lbl.config(text="Stopping service...", foreground="#17a2b8")
-            self.after(1500, self._check_clamd_service_status)
-            self.after(4000, self._check_clamd_service_status)
+        self.btn_stop_service.config(state="disabled")
+        self.clamd_service_status_lbl.config(text="Stopping service...", foreground="#17a2b8")
+
+        def _do_stop():
+            ok, msg = ClamDServiceManager.stop_service_elevated()
+            def _after():
+                self._check_clamd_service_status()
+                if not ok:
+                    messagebox.showerror("TinyAV", msg)
+            self.after(0, _after)
+
+        threading.Thread(target=_do_stop, daemon=True).start()
 
     def _uninstall_clamd_service(self) -> None:
         if not messagebox.askyesno(
@@ -469,14 +496,20 @@ class SettingsTab(ttk.Frame):
             return
         from app.platform_win.service_manager import ClamDServiceManager
         target_dir = self.bin_dir_var.get().strip()
-        ok, msg = ClamDServiceManager.uninstall_service_elevated(target_dir)
-        if not ok:
-            messagebox.showerror("TinyAV", msg)
-        else:
-            messagebox.showinfo("TinyAV", msg)
-            self.clamd_service_status_lbl.config(text="Uninstalling...", foreground="#17a2b8")
-            self.after(1500, self._check_clamd_service_status)
-            self.after(3500, self._check_clamd_service_status)
+        self.btn_uninstall_service.config(state="disabled")
+        self.clamd_service_status_lbl.config(text="Uninstalling service...", foreground="#17a2b8")
+
+        def _do_uninstall():
+            ok, msg = ClamDServiceManager.uninstall_service_elevated(target_dir)
+            def _after():
+                self._check_clamd_service_status()
+                if not ok:
+                    messagebox.showerror("TinyAV", msg)
+                else:
+                    messagebox.showinfo("TinyAV", msg)
+            self.after(0, _after)
+
+        threading.Thread(target=_do_uninstall, daemon=True).start()
 
     def _browse_quar_dir(self) -> None:
         d = filedialog.askdirectory(title="Select Quarantine Directory")

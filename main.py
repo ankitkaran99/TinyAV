@@ -76,25 +76,41 @@ def main() -> None:
     if args.install_clamd_service is not None:
         from app.platform_win.service_manager import ClamDServiceManager
         success, msg = ClamDServiceManager.install_service_direct(args.install_clamd_service or None)
-        print(msg)
+        logger.info(f"Install clamd service ({success}): {msg}")
+        try:
+            print(msg)
+        except Exception:
+            pass
         sys.exit(0 if success else 1)
 
     if args.uninstall_clamd_service is not None:
         from app.platform_win.service_manager import ClamDServiceManager
         success, msg = ClamDServiceManager.uninstall_service_direct(args.uninstall_clamd_service or None)
-        print(msg)
+        logger.info(f"Uninstall clamd service ({success}): {msg}")
+        try:
+            print(msg)
+        except Exception:
+            pass
         sys.exit(0 if success else 1)
 
     if args.start_clamd_service:
         from app.platform_win.service_manager import ClamDServiceManager
         success, msg = ClamDServiceManager.start_service_direct()
-        print(msg)
+        logger.info(f"Start clamd service ({success}): {msg}")
+        try:
+            print(msg)
+        except Exception:
+            pass
         sys.exit(0 if success else 1)
 
     if args.stop_clamd_service:
         from app.platform_win.service_manager import ClamDServiceManager
         success, msg = ClamDServiceManager.stop_service_direct()
-        print(msg)
+        logger.info(f"Stop clamd service ({success}): {msg}")
+        try:
+            print(msg)
+        except Exception:
+            pass
         sys.exit(0 if success else 1)
 
     config_mgr = ConfigManager()

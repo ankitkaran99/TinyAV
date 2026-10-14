@@ -104,20 +104,25 @@ def test_start_stop_service_direct():
 
 
 def test_elevated_service_calls(tmp_path):
-    with patch("app.platform_win.service_manager.is_admin", return_value=False), patch("win32api.ShellExecute", return_value=42) as mock_shell:
+    with patch("app.platform_win.service_manager.is_admin", return_value=False), patch(
+        "app.platform_win.service_manager._elevate_command", return_value=(True, "Elevated success")
+    ) as mock_elevate:
         ok, msg = ClamDServiceManager.install_service_elevated(str(tmp_path))
         assert ok is True
-        assert mock_shell.called
-        assert "runas" in mock_shell.call_args[0]
+        assert mock_elevate.called
+        assert "install-clamd-service" in mock_elevate.call_args[0][0]
 
         ok, msg = ClamDServiceManager.start_service_elevated()
         assert ok is True
+        assert "start-clamd-service" in mock_elevate.call_args[0][0]
 
         ok, msg = ClamDServiceManager.stop_service_elevated()
         assert ok is True
+        assert "stop-clamd-service" in mock_elevate.call_args[0][0]
 
         ok, msg = ClamDServiceManager.uninstall_service_elevated()
         assert ok is True
+        assert "uninstall-clamd-service" in mock_elevate.call_args[0][0]
 
 
 def test_wait_for_clamd_socket():
