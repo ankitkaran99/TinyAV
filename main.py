@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import threading
 import tkinter as tk
 
 from app.core.config import ConfigManager
@@ -15,9 +16,24 @@ from app.platform_win.context_menu import (
 from app.ui.main_window import MainWindow
 from app.ui.quick_scan_dialog import QuickScanWindow
 
+def _install_exception_hooks(logger) -> None:
+    def handle_sys_exception(exc_type, exc_value, exc_traceback):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+            return
+        logger.critical("Unhandled MainThread exception:", exc_info=(exc_type, exc_value, exc_traceback))
+
+    sys.excepthook = handle_sys_exception
+
+    if hasattr(threading, "excepthook"):
+        def handle_thread_exception(args):
+            logger.error(f"Unhandled exception in thread '{args.thread.name}':", exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+        threading.excepthook = handle_thread_exception
+
 def main() -> None:
     setup_logger()
     logger = get_logger()
+    _install_exception_hooks(logger)
 
     parser = argparse.ArgumentParser(description="TinyAV - ClamAV Antivirus Companion for Windows")
     parser.add_argument("--scan-path", type=str, help="Scan a specific file or folder directly (Context menu mode)")

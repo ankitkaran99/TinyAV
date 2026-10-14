@@ -214,30 +214,33 @@ class UpdateTab(ttk.Frame):
         self.log_message(f"Schedule updated: {'Every ' + str(hours) + ' hours' if enabled else 'Disabled'}")
 
     def refresh_info(self) -> None:
-        self.engine.refresh_engine()
-        mode_text = {
-            EngineMode.CLAMD: "clamd Daemon (High-Speed Local Socket)",
-            EngineMode.CLAMSCAN: "clamscan CLI Executable",
-            EngineMode.UNAVAILABLE: "Engine Not Found / Offline",
-        }.get(self.engine.mode, "Unknown")
-        self.mode_val_lbl.config(text=mode_text)
+        try:
+            self.engine.refresh_engine()
+            mode_text = {
+                EngineMode.CLAMD: "clamd Daemon (High-Speed Local Socket)",
+                EngineMode.CLAMSCAN: "clamscan CLI Executable",
+                EngineMode.UNAVAILABLE: "Engine Not Found / Offline",
+            }.get(self.engine.mode, "Unknown")
+            self.mode_val_lbl.config(text=mode_text)
 
-        self.eng_ver_lbl.config(text=self.engine.engine_version)
-        self.def_ver_lbl.config(text=self.config_manager.config.definition_version)
-        self.last_upd_lbl.config(text=self.config_manager.config.last_update_time or "Never")
+            self.eng_ver_lbl.config(text=self.engine.engine_version)
+            self.def_ver_lbl.config(text=self.config_manager.config.definition_version)
+            self.last_upd_lbl.config(text=self.config_manager.config.last_update_time or "Never")
 
-        cfg = self.config_manager.config
-        self.tab_auto_var.set(cfg.auto_update_enabled)
-        self.interval_combo_var.set(f"{cfg.update_interval_hours} hours" if cfg.update_interval_hours != 1 else "1 hour")
+            cfg = self.config_manager.config
+            self.tab_auto_var.set(cfg.auto_update_enabled)
+            self.interval_combo_var.set(f"{cfg.update_interval_hours} hours" if cfg.update_interval_hours != 1 else "1 hour")
 
-        if cfg.auto_update_enabled:
-            self.sched_lbl.config(text=f"Every {cfg.update_interval_hours} hours (Active)")
-        else:
-            self.sched_lbl.config(text="Disabled (Manual only)")
+            if cfg.auto_update_enabled:
+                self.sched_lbl.config(text=f"Every {cfg.update_interval_hours} hours (Active)")
+            else:
+                self.sched_lbl.config(text="Disabled (Manual only)")
 
-        # Update installed binary info
-        inst_dir = cfg.clamav_bin_dir or ClamAVConfigGenerator.detect_clamav_dir(self.config_manager, self.engine) or "Unset"
-        self.bin_installed_lbl.config(text=f"{self.engine.engine_version} (at: {inst_dir})")
+            # Update installed binary info
+            inst_dir = cfg.clamav_bin_dir or ClamAVConfigGenerator.detect_clamav_dir(self.config_manager, self.engine) or "Unset"
+            self.bin_installed_lbl.config(text=f"{self.engine.engine_version} (at: {inst_dir})")
+        except Exception as exc:
+            logger.error(f"Error in UpdateTab.refresh_info: {exc}", exc_info=True)
 
     def log_message(self, message: str) -> None:
         self.log_text.config(state="normal")

@@ -29,13 +29,56 @@ class TrayManager:
 
     def _create_menu(self) -> Menu:
         return Menu(
-            MenuItem("Open TinyAV", lambda: self.on_show(), default=True),
-            MenuItem("Scan Running Process Files", lambda: self.on_scan_processes()),
-            MenuItem("Update Virus Definitions", lambda: self.on_update()),
-            MenuItem("Settings", lambda: self.on_settings()),
+            MenuItem("Open TinyAV", self._on_menu_show, default=True),
+            MenuItem("Scan Running Process Files", self._on_menu_scan_processes),
+            MenuItem("Update Virus Definitions", self._on_menu_update),
+            MenuItem("Settings", self._on_menu_settings),
             Menu.SEPARATOR,
-            MenuItem("Exit TinyAV", lambda: self.on_exit()),
+            MenuItem("Exit TinyAV", self._on_menu_exit),
         )
+
+    def _on_menu_show(self, icon=None, item=None) -> None:
+        logger.info("Tray event: Open TinyAV activated.")
+        try:
+            self.on_show()
+        except Exception as exc:
+            logger.error(f"Error in tray on_show callback: {exc}", exc_info=True)
+
+    def _on_menu_scan_processes(self, icon=None, item=None) -> None:
+        logger.info("Tray event: Scan Running Process Files activated.")
+        try:
+            self.on_scan_processes()
+        except Exception as exc:
+            logger.error(f"Error in tray on_scan_processes callback: {exc}", exc_info=True)
+
+    def _on_menu_update(self, icon=None, item=None) -> None:
+        logger.info("Tray event: Update Definitions activated.")
+        try:
+            self.on_update()
+        except Exception as exc:
+            logger.error(f"Error in tray on_update callback: {exc}", exc_info=True)
+
+    def _on_menu_settings(self, icon=None, item=None) -> None:
+        logger.info("Tray event: Settings activated.")
+        try:
+            self.on_settings()
+        except Exception as exc:
+            logger.error(f"Error in tray on_settings callback: {exc}", exc_info=True)
+
+    def _on_menu_exit(self, icon=None, item=None) -> None:
+        logger.info("Tray event: Exit TinyAV activated.")
+        try:
+            self.on_exit()
+        except Exception as exc:
+            logger.error(f"Error in tray on_exit callback: {exc}", exc_info=True)
+
+    def is_alive(self) -> bool:
+        return self._thread is not None and self._thread.is_alive() and self.icon is not None
+
+    def restart(self) -> None:
+        logger.warning("Restarting system tray manager...")
+        self.stop()
+        self.start()
 
     def start(self) -> None:
         if self.icon:
