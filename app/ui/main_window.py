@@ -51,6 +51,7 @@ class MainWindow:
         self.ui_queue: queue.Queue = queue.Queue()
         self.drive_watcher: Optional[DriveWatcher] = None
         self._watchdog_counter = 0
+        self._last_clean_notify_time = 0.0
 
         self._build_ui()
 
@@ -79,6 +80,7 @@ class MainWindow:
             on_threat_detected=lambda path, threat, quar: self.ui_queue.put(("REALTIME_THREAT", (path, threat, quar))),
             on_scan_clean=lambda path: self.ui_queue.put(("REALTIME_CLEAN", path)),
             on_scan_start=lambda path: self.ui_queue.put(("REALTIME_START", path)),
+            on_batch_clean=lambda count, sample: self.ui_queue.put(("REALTIME_BATCH_CLEAN", (count, sample))),
         )
         self.folder_watcher.start()
 
@@ -233,10 +235,28 @@ class MainWindow:
                     text=f"Auto-scan clean: {fname}"
                 )
             if self.config_manager.config.notify_on_clean:
-                self.tray.notify(
-                    "Download Verified Safe",
-                    f"'{fname}' was scanned and verified clean.",
+                now = time.time()
+                if now - self._last_clean_notify_time >= 3.0:
+                    self._last_clean_notify_time = now
+                    self.tray.notify(
+                        "Download Verified Safe",
+                        f"'{fname}' was scanned and verified clean.",
+                    )
+        elif event_type == "REALTIME_BATCH_CLEAN":
+            count, sample = data
+            logger.info(f"Verified clean batch: {count} files (e.g. {sample})")
+            if hasattr(self, "scan_tab") and not self.scan_tab.is_scanning:
+                self.scan_tab.status_label.config(
+                    text=f"Auto-scan clean: {count} files verified safe"
                 )
+            if self.config_manager.config.notify_on_clean:
+                now = time.time()
+                if now - self._last_clean_notify_time >= 3.0:
+                    self._last_clean_notify_time = now
+                    self.tray.notify(
+                        "Files Verified Safe",
+                        f"{count} extracted/downloaded files were scanned and verified clean.",
+                    )
         elif event_type == "TRAY_ACTION":
             action = data
             logger.info(f"Processing TRAY_ACTION: {action}")

@@ -199,3 +199,58 @@ def test_folder_watcher_recursive_and_ads_handling():
         # Alternate Data Stream (Zone.Identifier) should be recognized as watched
         ads_path = os.path.join(watched_dir, "installer.exe:Zone.Identifier")
         assert watcher.is_path_watched(ads_path) is True
+
+
+def test_folder_watcher_batch_extraction_burst():
+    from app.core.engine import ScanSummary
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        watched_dir = os.path.join(tmpdir, "Downloads")
+        extracted_folder = os.path.join(watched_dir, "extracted_project")
+        os.makedirs(extracted_folder, exist_ok=True)
+
+        cfg = AppConfig(watched_directories=[watched_dir], realtime_watch_enabled=True)
+        cfg_mgr = ConfigManager()
+        cfg_mgr.config = cfg
+
+        engine = MagicMock(spec=ClamAVEngine)
+        engine.scan_single_file.return_value = ("OK", None, None)
+        # Mock scan_files returning clean summary for batch
+        def mock_scan_files(file_paths=None, *args, **kwargs):
+            paths = file_paths or []
+            s = ScanSummary()
+            s.scanned_files = len(paths)
+            return s
+        engine.scan_files.side_effect = mock_scan_files
+
+        quarantine_mgr = MagicMock(spec=QuarantineManager)
+
+        batch_clean_events = []
+        watcher = RealtimeFolderWatcher(
+            cfg_mgr,
+            engine,
+            quarantine_mgr,
+            on_batch_clean=lambda count, sample: batch_clean_events.append((count, sample)),
+            debounce_window=0.2,
+        )
+        watcher.start()
+
+        # Simulate extracting 10 files in rapid burst
+        created_paths = []
+        for i in range(10):
+            p = os.path.join(extracted_folder, f"file_{i}.txt")
+            with open(p, "wb") as f:
+                f.write(f"content {i}".encode("utf-8"))
+            created_paths.append(p)
+            watcher.queue_scan(p)
+
+        # Allow worker loop to process settled batch
+        time.sleep(1.0)
+        watcher.stop()
+
+        # Should have scanned files via batch scan_files, avoiding 10 separate clamscan process spawns
+        assert engine.scan_files.call_count >= 1
+        assert len(batch_clean_events) >= 1
+        total_scanned = sum(count for count, _ in batch_clean_events)
+        assert total_scanned == 10
+

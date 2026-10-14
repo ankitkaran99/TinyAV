@@ -53,6 +53,7 @@ class ClamAVEngine:
         self.freshclam_path: Optional[str] = None
         self.clamd_path: Optional[str] = None
         self._active_proc: Optional[subprocess.Popen] = None
+        self._scan_lock = threading.Lock()
         self.refresh_engine()
 
     def cancel_active_scan(self) -> None:
@@ -200,40 +201,45 @@ class ClamAVEngine:
 
         # Fallback to clamscan.exe
         if self.clamscan_path:
-            try:
-                cmd = [self.clamscan_path, "--stdout", "--no-summary", file_path]
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    cwd=os.path.dirname(self.clamscan_path),
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-                )
-                self._active_proc = proc
-                stdout, stderr = proc.communicate(timeout=120)
-                stdout = (stdout or "").strip()
-                for line in stdout.splitlines():
-                    st, path, threat, err = self.parse_clamscan_line(line)
-                    if st == "FOUND":
-                        return "FOUND", threat, None
-                    elif st == "ERROR":
-                        return "ERROR", None, err
-                    elif st == "OK":
+            with self._scan_lock:
+                try:
+                    cmd = [self.clamscan_path, "--stdout", "--no-summary", file_path]
+                    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+                    if os.name == "nt" and hasattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS"):
+                        flags |= subprocess.BELOW_NORMAL_PRIORITY_CLASS
+
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        cwd=os.path.dirname(self.clamscan_path),
+                        creationflags=flags,
+                    )
+                    self._active_proc = proc
+                    stdout, stderr = proc.communicate(timeout=120)
+                    stdout = (stdout or "").strip()
+                    for line in stdout.splitlines():
+                        st, path, threat, err = self.parse_clamscan_line(line)
+                        if st == "FOUND":
+                            return "FOUND", threat, None
+                        elif st == "ERROR":
+                            return "ERROR", None, err
+                        elif st == "OK":
+                            return "OK", None, None
+                    # Check return code: 0 = clean, 1 = infected, 2 = error
+                    if proc.returncode == 0:
                         return "OK", None, None
-                # Check return code: 0 = clean, 1 = infected, 2 = error
-                if proc.returncode == 0:
-                    return "OK", None, None
-                elif proc.returncode == 1:
-                    return "FOUND", "Unknown Threat", None
-                else:
-                    return "ERROR", None, f"Exit code {proc.returncode}: {(stderr or '').strip()}"
-            except Exception as exc:
-                return "ERROR", None, str(exc)
-            finally:
-                self._active_proc = None
+                    elif proc.returncode == 1:
+                        return "FOUND", "Unknown Threat", None
+                    else:
+                        return "ERROR", None, f"Exit code {proc.returncode}: {(stderr or '').strip()}"
+                except Exception as exc:
+                    return "ERROR", None, str(exc)
+                finally:
+                    self._active_proc = None
 
         return "ERROR", None, "ClamAV engine is not installed or available."
 
@@ -319,18 +325,23 @@ class ClamAVEngine:
                 f"--file-list={temp_list}",
             ]
 
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-                cwd=os.path.dirname(self.clamscan_path),
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
-            self._active_proc = proc
+            flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            if os.name == "nt" and hasattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS"):
+                flags |= subprocess.BELOW_NORMAL_PRIORITY_CLASS
+
+            with self._scan_lock:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
+                    cwd=os.path.dirname(self.clamscan_path),
+                    creationflags=flags,
+                )
+                self._active_proc = proc
 
             scanned = 0
             while True:
