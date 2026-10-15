@@ -28,7 +28,7 @@ class FirstRunSetupDialog(tk.Toplevel):
         self.provisioner = AutoProvisioner(config_manager, engine)
 
         self.title("TinyAV - Quick Start & Setup")
-        self.geometry("540x360")
+        self.geometry("560x460")
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
@@ -43,8 +43,8 @@ class FirstRunSetupDialog(tk.Toplevel):
             ph = parent.winfo_height()
             px = parent.winfo_rootx()
             py = parent.winfo_rooty()
-            w = 540
-            h = 360
+            w = 560
+            h = 460
             x = px + (pw - w) // 2
             y = py + (ph - h) // 2
             self.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
@@ -66,17 +66,51 @@ class FirstRunSetupDialog(tk.Toplevel):
 
         # Description
         desc_text = (
-            "TinyAV uses the official open-source ClamAV antivirus engine to protect "
-            "your files, downloads, and system from malware and threats.\n\n"
+            "TinyAV uses the official open-source ClamAV engine to protect "
+            "your files, downloads, and system from malware.\n\n"
             "ClamAV was not detected on this PC. TinyAV can automatically download, "
-            "install, and configure everything for you out-of-the-box in 1 click."
+            "extract, and configure everything for you out-of-the-box in 1 click."
         )
-        desc_lbl = ttk.Label(container, text=desc_text, wraplength=490, justify="left")
-        desc_lbl.pack(anchor="w", pady=(0, 14))
+        desc_lbl = ttk.Label(container, text=desc_text, wraplength=510, justify="left")
+        desc_lbl.pack(anchor="w", pady=(0, 10))
+
+        # Engine Mode Selection Card
+        mode_card = ttk.LabelFrame(container, text="Engine Scan Mode Selection", padding=(12, 8))
+        mode_card.pack(fill="x", pady=(0, 10))
+
+        self.engine_mode_var = tk.StringVar(value="cli")
+
+        r1 = ttk.Radiobutton(
+            mode_card,
+            text="⚡ Lightweight On-Demand CLI Mode (clamscan.exe) — Recommended",
+            variable=self.engine_mode_var,
+            value="cli",
+        )
+        r1.pack(anchor="w", pady=(0, 2))
+        ttk.Label(
+            mode_card,
+            text="    Zero background services, lowest RAM consumption, on-demand scanning.",
+            font=("Segoe UI", 8),
+            foreground="#666666",
+        ).pack(anchor="w", pady=(0, 6))
+
+        r2 = ttk.Radiobutton(
+            mode_card,
+            text="🚀 High-Performance Daemon Service (clamd.exe)",
+            variable=self.engine_mode_var,
+            value="daemon",
+        )
+        r2.pack(anchor="w", pady=(0, 2))
+        ttk.Label(
+            mode_card,
+            text="    Keeps virus definitions in memory for instant scans. Installs background Windows service (UAC prompt).",
+            font=("Segoe UI", 8),
+            foreground="#666666",
+        ).pack(anchor="w")
 
         # Destination card
-        dest_card = ttk.LabelFrame(container, text="Installation Location", padding=(10, 8))
-        dest_card.pack(fill="x", pady=(0, 14))
+        dest_card = ttk.LabelFrame(container, text="Installation Location", padding=(10, 6))
+        dest_card.pack(fill="x", pady=(0, 10))
 
         default_dir = self.provisioner.get_default_install_dir()
         ttk.Label(
@@ -99,7 +133,7 @@ class FirstRunSetupDialog(tk.Toplevel):
 
         # Action buttons
         self.btn_box = ttk.Frame(container)
-        self.btn_box.pack(fill="x", side="bottom", pady=(10, 0))
+        self.btn_box.pack(fill="x", side="bottom", pady=(6, 0))
 
         self.manual_btn = ttk.Button(self.btn_box, text="Configure Manually", command=self._on_skip)
         self.manual_btn.pack(side="left")
@@ -119,6 +153,8 @@ class FirstRunSetupDialog(tk.Toplevel):
         self.status_lbl.pack(fill="x", side="bottom", pady=(4, 6))
         self.prog_bar.pack(fill="x", side="bottom", pady=(4, 4))
         self.status_lbl.config(text="Starting automatic setup...", foreground="#007acc")
+
+        install_service = (self.engine_mode_var.get() == "daemon")
 
         def progress_cb(msg: str, pct: float):
             def _update():
@@ -144,6 +180,7 @@ class FirstRunSetupDialog(tk.Toplevel):
 
         self.provisioner.run_provisioning_async(
             target_dir=None,
+            install_service=install_service,
             progress_callback=progress_cb,
             completion_callback=completion_cb,
         )

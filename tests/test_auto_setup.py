@@ -34,7 +34,40 @@ def test_get_default_install_dir():
     assert "Programs" in d
 
 
-def test_do_provisioning_success(mock_config_mgr, mock_engine, tmp_path):
+def test_do_provisioning_cli_default(mock_config_mgr, mock_engine, tmp_path):
+    provisioner = AutoProvisioner(mock_config_mgr, mock_engine)
+    target_dir = str(tmp_path / "clamav_install")
+
+    fake_asset = ReleaseAsset(
+        name="clamav-1.5.4.win.x64.zip",
+        size=1000,
+        download_url="https://example.com/fake.zip",
+        content_type="application/zip",
+    )
+    fake_release = ClamAVReleaseInfo(
+        tag_name="clamav-1.5.4",
+        version="1.5.4",
+        release_name="ClamAV 1.5.4",
+        html_url="https://github.com/fake",
+        published_at="2026-10-15",
+        zip_asset=fake_asset,
+    )
+
+    with patch.object(provisioner.binary_updater, "check_for_updates", return_value=(True, "OK", fake_release)), \
+         patch.object(provisioner.binary_updater, "download_file", return_value=(True, "Downloaded")), \
+         patch("app.core.binary_updater.ClamAVBinaryUpdater.apply_zip_update_direct", return_value=(True, "Extracted", 10)), \
+         patch("app.core.config_generator.ClamAVConfigGenerator.generate_configs_direct", return_value=(True, "Configured", [])), \
+         patch("app.platform_win.service_manager.ClamDServiceManager.install_service_elevated") as mock_install_svc:
+
+        ok, msg = provisioner._do_provisioning(target_dir, install_service=False)
+        assert ok is True
+        assert "installed and configured successfully" in msg
+        assert mock_config_mgr.config.clamav_bin_dir == target_dir
+        assert mock_config_mgr.config.prefer_clamd is False
+        mock_install_svc.assert_not_called()
+
+
+def test_do_provisioning_with_service(mock_config_mgr, mock_engine, tmp_path):
     provisioner = AutoProvisioner(mock_config_mgr, mock_engine)
     target_dir = str(tmp_path / "clamav_install")
 
@@ -60,7 +93,7 @@ def test_do_provisioning_success(mock_config_mgr, mock_engine, tmp_path):
          patch("app.platform_win.service_manager.ClamDServiceManager.install_service_elevated", return_value=(True, "Service installed")), \
          patch("app.platform_win.service_manager.wait_for_clamd_socket", return_value=True):
 
-        ok, msg = provisioner._do_provisioning(target_dir)
+        ok, msg = provisioner._do_provisioning(target_dir, install_service=True)
         assert ok is True
         assert "installed and configured successfully" in msg
         assert mock_config_mgr.config.clamav_bin_dir == target_dir

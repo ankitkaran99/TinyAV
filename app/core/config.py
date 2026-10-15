@@ -34,7 +34,7 @@ class AppConfig:
     clamav_bin_dir: str = ""
     clamd_host: str = "127.0.0.1"
     clamd_port: int = 3310
-    prefer_clamd: bool = True
+    prefer_clamd: bool = False
     quarantine_dir: str = field(default_factory=get_default_quarantine_dir)
     update_interval_hours: int = 4
     auto_update_enabled: bool = True

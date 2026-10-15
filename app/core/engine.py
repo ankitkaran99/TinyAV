@@ -101,8 +101,9 @@ class ClamAVEngine:
         self.freshclam_path = self.find_binary("freshclam")
         self.clamd_path = self.find_binary("clamd")
 
-        # Check clamd daemon first if preferred
-        if self.config.prefer_clamd:
+        self.clamd_client = None
+
+        def _try_clamd() -> bool:
             try:
                 client = clamd.ClamdNetworkSocket(
                     host=self.config.clamd_host,
@@ -117,30 +118,45 @@ class ClamAVEngine:
                     except Exception:
                         self.engine_version = "clamd (connected)"
                     logger.info(f"ClamAV daemon active at {self.config.clamd_host}:{self.config.clamd_port} ({self.engine_version})")
-                    return self.mode
+                    return True
             except Exception as exc:
                 logger.debug(f"clamd daemon not responding on {self.config.clamd_host}:{self.config.clamd_port}: {exc}")
                 self.clamd_client = None
+            return False
 
-        # Fallback to clamscan executable
-        if self.clamscan_path:
-            self.mode = EngineMode.CLAMSCAN
-            try:
-                out = subprocess.check_output(
-                    [self.clamscan_path, "--version"],
-                    stderr=subprocess.STDOUT,
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=5,
-                )
-                self.engine_version = out.strip().split("\n")[0]
-            except Exception as exc:
-                self.engine_version = "ClamScan CLI"
-                logger.debug(f"Could not get clamscan version: {exc}")
-            logger.info(f"ClamAV using clamscan CLI at {self.clamscan_path} ({self.engine_version})")
-            return self.mode
+        def _try_clamscan() -> bool:
+            if self.clamscan_path:
+                self.mode = EngineMode.CLAMSCAN
+                try:
+                    out = subprocess.check_output(
+                        [self.clamscan_path, "--version"],
+                        stderr=subprocess.STDOUT,
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=5,
+                    )
+                    self.engine_version = out.strip().split("\n")[0]
+                except Exception as exc:
+                    self.engine_version = "ClamScan CLI"
+                    logger.debug(f"Could not get clamscan version: {exc}")
+                logger.info(f"ClamAV using clamscan CLI at {self.clamscan_path} ({self.engine_version})")
+                return True
+            return False
+
+        if self.config.prefer_clamd:
+            # Prioritize Daemon first, fallback to CLI
+            if _try_clamd():
+                return self.mode
+            if _try_clamscan():
+                return self.mode
+        else:
+            # Prioritize CLI first, fallback to Daemon
+            if _try_clamscan():
+                return self.mode
+            if _try_clamd():
+                return self.mode
 
         self.mode = EngineMode.UNAVAILABLE
         self.engine_version = "Not detected"

@@ -50,6 +50,7 @@ class AutoProvisioner:
     def run_provisioning_async(
         self,
         target_dir: Optional[str] = None,
+        install_service: bool = False,
         progress_callback: Optional[Callable[[str, float], None]] = None,
         completion_callback: Optional[Callable[[bool, str], None]] = None,
     ) -> None:
@@ -65,7 +66,7 @@ class AutoProvisioner:
 
         def worker():
             try:
-                success, msg = self._do_provisioning(dest_dir, progress_callback)
+                success, msg = self._do_provisioning(dest_dir, install_service, progress_callback)
             except Exception as exc:
                 logger.error(f"Auto-provisioning failed: {exc}", exc_info=True)
                 success, msg = False, f"Unexpected error during setup: {exc}"
@@ -81,6 +82,7 @@ class AutoProvisioner:
     def _do_provisioning(
         self,
         target_dir: str,
+        install_service: bool = False,
         progress_cb: Optional[Callable[[str, float], None]] = None,
     ) -> Tuple[bool, str]:
         def report(status: str, pct: float):
@@ -144,7 +146,7 @@ class AutoProvisioner:
         report("Saving TinyAV configuration...", 75.0)
         self.config_manager.update(
             clamav_bin_dir=target_dir,
-            prefer_clamd=True,
+            prefer_clamd=install_service,
         )
         self.engine.refresh_engine()
 
@@ -168,17 +170,20 @@ class AutoProvisioner:
                 except Exception as exc:
                     logger.warning(f"Initial freshclam run notice: {exc}")
 
-        # Step 7: Install and Start clamd Windows Service
-        report("Setting up background ClamD service...", 90.0)
-        try:
-            ClamDServiceManager.install_service_elevated(target_dir)
-            wait_for_clamd_socket(
-                host=self.config_manager.config.clamd_host,
-                port=self.config_manager.config.clamd_port,
-                timeout=20.0,
-            )
-        except Exception as exc:
-            logger.debug(f"Service setup notice: {exc}")
+        # Step 7: Background ClamD Service Setup (Optional)
+        if install_service:
+            report("Setting up background ClamD service...", 90.0)
+            try:
+                ClamDServiceManager.install_service_elevated(target_dir)
+                wait_for_clamd_socket(
+                    host=self.config_manager.config.clamd_host,
+                    port=self.config_manager.config.clamd_port,
+                    timeout=20.0,
+                )
+            except Exception as exc:
+                logger.debug(f"Service setup notice: {exc}")
+        else:
+            report("Configuring lightweight on-demand CLI engine (clamscan)...", 90.0)
 
         # Finalize
         self.engine.refresh_engine()
