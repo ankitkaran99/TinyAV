@@ -93,41 +93,17 @@ class UpdateTab(ttk.Frame):
         self.sched_lbl.grid(row=4, column=1, sticky="w", pady=3, padx=8)
 
         # 2. Virus Definitions Updates (freshclam)
-        act_frame = ttk.LabelFrame(scrollable_frame, text="Virus Signatures Updates (freshclam)", padding=(12, 8))
+        act_frame = ttk.LabelFrame(scrollable_frame, text="Virus Signatures Updates (freshclam)", padding=(12, 10))
         act_frame.pack(fill="x", expand=True, pady=6)
-        act_frame.columnconfigure(2, weight=1)
 
-        # Manual Update & Conf Gen Buttons
+        # Manual Update Action Box
         top_act_box = ttk.Frame(act_frame)
-        top_act_box.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+        top_act_box.pack(fill="x", pady=2)
 
         self.update_btn = ttk.Button(top_act_box, text="Update Definitions Now", command=self.trigger_manual_update, width=24)
         self.update_btn.pack(side="left")
 
-        self.gen_conf_btn = ttk.Button(top_act_box, text="Auto-Generate Conf Files", command=self._generate_configs)
-        self.gen_conf_btn.pack(side="left", padx=8)
-
         self.prog_spinner = ttk.Progressbar(top_act_box, mode="indeterminate", length=140)
-
-        # Interval Configuration Row
-        sched_row = ttk.Frame(act_frame)
-        sched_row.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(2, 0))
-
-        self.tab_auto_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(sched_row, text="Enable periodic updates", variable=self.tab_auto_var).pack(side="left", padx=(0, 10))
-
-        ttk.Label(sched_row, text="Interval:").pack(side="left", padx=(0, 4))
-        self.interval_combo_var = tk.StringVar(value="4 hours")
-        self.interval_combo = ttk.Combobox(
-            sched_row,
-            textvariable=self.interval_combo_var,
-            values=["1 hour", "2 hours", "4 hours", "6 hours", "8 hours", "12 hours", "24 hours"],
-            state="readonly",
-            width=10,
-        )
-        self.interval_combo.pack(side="left", padx=4)
-
-        ttk.Button(sched_row, text="Apply Schedule", command=self._apply_schedule).pack(side="left", padx=10)
 
         # 3. ClamAV Engine Binary Updates (GitHub Releases)
         bin_frame = ttk.LabelFrame(scrollable_frame, text="ClamAV Engine Binary Updates (Cisco-Talos/clamav)", padding=(12, 8))
@@ -196,23 +172,6 @@ class UpdateTab(ttk.Frame):
         self.log_text.pack(side="left", fill="both", expand=True)
         log_scroll.pack(side="right", fill="y")
 
-    def _apply_schedule(self) -> None:
-        raw_val = self.interval_combo_var.get()
-        hours = 4
-        try:
-            hours = int(raw_val.split()[0])
-        except Exception:
-            hours = 4
-
-        enabled = self.tab_auto_var.get()
-        self.config_manager.update(
-            update_interval_hours=hours,
-            auto_update_enabled=enabled,
-        )
-        self.update_manager.reschedule(interval_hours=hours, enabled=enabled)
-        self.refresh_info()
-        self.log_message(f"Schedule updated: {'Every ' + str(hours) + ' hours' if enabled else 'Disabled'}")
-
     def refresh_info(self) -> None:
         try:
             self.engine.refresh_engine()
@@ -228,9 +187,6 @@ class UpdateTab(ttk.Frame):
             self.last_upd_lbl.config(text=self.config_manager.config.last_update_time or "Never")
 
             cfg = self.config_manager.config
-            self.tab_auto_var.set(cfg.auto_update_enabled)
-            self.interval_combo_var.set(f"{cfg.update_interval_hours} hours" if cfg.update_interval_hours != 1 else "1 hour")
-
             if cfg.auto_update_enabled:
                 self.sched_lbl.config(text=f"Every {cfg.update_interval_hours} hours (Active)")
             else:
@@ -247,19 +203,6 @@ class UpdateTab(ttk.Frame):
         self.log_text.insert("end", f"{message}\n")
         self.log_text.see("end")
         self.log_text.config(state="disabled")
-
-    def _generate_configs(self) -> None:
-        self.log_message("Auto-generating optimized ClamAV configuration files...")
-        success, msg, files = ClamAVConfigGenerator.generate_configs(
-            config_manager=self.config_manager,
-            engine=self.engine,
-        )
-        self.log_message(msg)
-        if success:
-            self.refresh_info()
-            messagebox.showinfo("Configuration Generated", msg)
-        else:
-            messagebox.showerror("Configuration Error", msg)
 
     def trigger_manual_update(self) -> None:
         if self.update_manager.is_updating:
