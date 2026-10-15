@@ -64,31 +64,23 @@ class ScanTab(ttk.Frame):
         r_proc.grid(row=0, column=3, padx=5, pady=2, sticky="w")
 
         # Target selection row
-        target_subframe = ttk.Frame(scope_frame)
-        target_subframe.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(6, 2))
-        target_subframe.columnconfigure(1, weight=1)
+        self.target_subframe = ttk.Frame(scope_frame)
+        self.target_subframe.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(6, 2))
+        self.target_subframe.columnconfigure(1, weight=1)
 
-        self.target_label = ttk.Label(target_subframe, text="Target:")
+        self.target_label = ttk.Label(self.target_subframe, text="Target:")
         self.target_label.grid(row=0, column=0, padx=(0, 5), sticky="w")
 
         self.target_var = tk.StringVar(value=os.path.expanduser("~"))
-        self.target_entry = ttk.Entry(target_subframe, textvariable=self.target_var)
+        self.target_entry = ttk.Entry(self.target_subframe, textvariable=self.target_var)
         self.target_entry.grid(row=0, column=1, sticky="ew", padx=5)
 
-        self.browse_btn = ttk.Button(target_subframe, text="Browse...", command=self._browse_target)
+        self.browse_btn = ttk.Button(self.target_subframe, text="Browse...", command=self._browse_target)
         self.browse_btn.grid(row=0, column=2, padx=5)
 
         # Drive combobox (hidden by default unless 'drive' is picked)
         self.drive_var = tk.StringVar()
-        self.drive_combo = ttk.Combobox(target_subframe, textvariable=self.drive_var, state="readonly", width=30)
-
-        # Informational note for running process scan
-        self.proc_info_label = ttk.Label(
-            scope_frame,
-            text="* Note: Scans on-disk executable binaries and loaded DLL modules of active processes (live memory inspection is not supported by ClamAV on Windows).",
-            font=("Segoe UI", 8, "italic"),
-            foreground="#555555",
-        )
+        self.drive_combo = ttk.Combobox(self.target_subframe, textvariable=self.drive_var, state="readonly", width=30)
 
         # 2. Controls & Progress Frame
         ctrl_frame = ttk.Frame(self, padding=(10, 5))
@@ -174,24 +166,19 @@ class ScanTab(ttk.Frame):
 
     def _on_scope_changed(self) -> None:
         scope = self.scope_var.get()
-        self.proc_info_label.grid_forget()
+        self.target_subframe.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(6, 2))
         self.drive_combo.grid_forget()
         self.target_entry.grid(row=0, column=1, sticky="ew", padx=5)
         self.browse_btn.grid(row=0, column=2, padx=5)
 
         if scope == "processes":
-            self.target_entry.grid_forget()
-            self.browse_btn.grid_forget()
-            self.proc_info_label.grid(row=2, column=0, columnspan=4, sticky="w", pady=(4, 0))
+            self.target_subframe.grid_forget()
         elif scope == "drive":
             self.target_entry.grid_forget()
             self.browse_btn.grid_forget()
             self._refresh_drive_list()
             self.drive_combo.grid(row=0, column=1, sticky="ew", padx=5)
-        elif scope == "files":
-            self.target_entry.config(state="normal")
-            self.browse_btn.config(state="normal")
-        elif scope == "folder":
+        elif scope in ("files", "folder"):
             self.target_entry.config(state="normal")
             self.browse_btn.config(state="normal")
 
