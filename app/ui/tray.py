@@ -26,6 +26,7 @@ class TrayManager:
         self.current_state = "idle"
         self.icon: Optional[pystray.Icon] = None
         self._thread: Optional[threading.Thread] = None
+        self._clear_timer: Optional[threading.Timer] = None
 
     def _create_menu(self) -> Menu:
         return Menu(
@@ -92,6 +93,8 @@ class TrayManager:
             menu=self._create_menu(),
         )
 
+        self._hook_notification_dismissal()
+
         self._thread = threading.Thread(
             target=self.icon.run,
             daemon=True,
@@ -100,7 +103,50 @@ class TrayManager:
         self._thread.start()
         logger.info("Pystray system tray started.")
 
+    def _hook_notification_dismissal(self) -> None:
+        """
+        Hooks into Windows notification callback messages (NIN_BALLOONTIMEOUT, NIN_BALLOONUSERCLICK,
+        NIN_BALLOONHIDE) so that clicking the times ('X') icon or clicking the toast immediately clears
+        the notification from the Windows Action Center sidebar instead of archiving it there.
+        """
+        if not self.icon or not hasattr(self.icon, "_on_notify"):
+            return
+
+        original_on_notify = self.icon._on_notify
+
+        def _patched_on_notify(wparam, lparam):
+            # Windows Notification callback message codes:
+            # NIN_BALLOONHIDE = 1027
+            # NIN_BALLOONTIMEOUT = 1028 (fired when user clicks 'X' close/times icon or toast times out)
+            # NIN_BALLOONUSERCLICK = 1029 (fired when user clicks the notification body)
+            if lparam in (1027, 1028, 1029):
+                logger.debug(f"Tray notification dismissed by user/timeout (code={lparam}). Clearing from Action Center.")
+                try:
+                    self.clear_notification()
+                except Exception as exc:
+                    logger.debug(f"Error in clear_notification on dismiss: {exc}")
+
+            return original_on_notify(wparam, lparam)
+
+        self.icon._on_notify = _patched_on_notify
+
+    def clear_notification(self) -> None:
+        """Removes the notification and clears it from the Windows Action Center sidebar."""
+        if self._clear_timer:
+            try:
+                self._clear_timer.cancel()
+            except Exception:
+                pass
+            self._clear_timer = None
+
+        if self.icon and hasattr(self.icon, "remove_notification"):
+            try:
+                self.icon.remove_notification()
+            except Exception as exc:
+                logger.debug(f"Error calling remove_notification: {exc}")
+
     def stop(self) -> None:
+        self.clear_notification()
         if self.icon:
             try:
                 self.icon.stop()
@@ -129,11 +175,30 @@ class TrayManager:
         except Exception as exc:
             logger.debug(f"Failed to update tray icon state: {exc}")
 
-    def notify(self, title: str, message: str) -> None:
-        """Sends a Windows toast/balloon notification through pystray."""
+    def notify(self, title: str, message: str, auto_clear_after: float = 6.0) -> None:
+        """
+        Sends a Windows toast/balloon notification through pystray.
+        Automatically cleans up from the Windows Action Center sidebar upon dismissal or timeout.
+        """
         if not self.icon:
             return
+
+        if self._clear_timer:
+            try:
+                self._clear_timer.cancel()
+            except Exception:
+                pass
+            self._clear_timer = None
+
         try:
+            # Clear previous notification first to ensure a clean state in the Action Center
+            self.clear_notification()
             self.icon.notify(message, title)
+
+            # Auto-clear after timeout so dismissed or elapsed notifications do not remain in the sidebar
+            if auto_clear_after and auto_clear_after > 0:
+                self._clear_timer = threading.Timer(auto_clear_after, self.clear_notification)
+                self._clear_timer.daemon = True
+                self._clear_timer.start()
         except Exception as exc:
             logger.debug(f"Failed to show tray notification: {exc}")

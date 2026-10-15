@@ -202,3 +202,33 @@ def test_threat_removed_restores_idle_state(tmp_path):
         pass
 
 
+def test_tray_notification_sidebar_dismissal():
+    tray = TrayManager(
+        on_show=MagicMock(),
+        on_scan_processes=MagicMock(),
+        on_update=MagicMock(),
+        on_settings=MagicMock(),
+        on_exit=MagicMock(),
+    )
+
+    mock_icon = MagicMock()
+    orig_on_notify = MagicMock()
+    mock_icon._on_notify = orig_on_notify
+    tray.icon = mock_icon
+
+    tray._hook_notification_dismissal()
+
+    # Verify interceptor is attached and differs from original
+    assert tray.icon._on_notify != orig_on_notify
+
+    # Simulate Windows firing NIN_BALLOONTIMEOUT (1028 = clicked 'X' times icon or timeout)
+    tray.icon._on_notify(0, 1028)
+    mock_icon.remove_notification.assert_called_once()
+    orig_on_notify.assert_called_once_with(0, 1028)
+
+    # Simulate notify and auto-clear timer
+    mock_icon.remove_notification.reset_mock()
+    tray.notify("Test Alert", "Message", auto_clear_after=0.05)
+    mock_icon.notify.assert_called_once_with("Message", "Test Alert")
+
+
