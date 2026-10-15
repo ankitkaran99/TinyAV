@@ -52,7 +52,6 @@ It provides modern Windows integration—including context menu scanning, USB dr
 | Package | Format | Description | Download |
 | :--- | :--- | :--- | :--- |
 | **TinyAV Portable** | `.zip` | Standalone portable folder. Just extract and run `TinyAV.exe`. | **[Download Latest Release](https://github.com/ankitkaran99/TinyAV/releases/latest)** |
-| **TinyAV Installer** | `.exe` | Windows setup wizard with Start Menu and desktop shortcut creation. | **[Download Setup Wizard](https://github.com/ankitkaran99/TinyAV/releases/latest)** |
 
 ### 🚀 Getting Started in 3 Steps:
 1. **Download & Extract**: Grab the latest `TinyAV-Portable.zip` from **[GitHub Releases](https://github.com/ankitkaran99/TinyAV/releases/latest)** and extract it to any folder (e.g. `C:\Tools\TinyAV` or `%LOCALAPPDATA%\Programs\TinyAV`).
