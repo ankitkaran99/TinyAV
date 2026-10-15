@@ -147,6 +147,10 @@ class ClamAVEngine:
         logger.warning("No ClamAV engine (clamd or clamscan.exe) detected")
         return self.mode
 
+    def is_available(self) -> bool:
+        """Returns True if ClamAV engine (daemon or CLI) is available and functional."""
+        return self.mode != EngineMode.UNAVAILABLE
+
     @staticmethod
     def parse_clamscan_line(line: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
         """

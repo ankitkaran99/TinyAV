@@ -80,6 +80,7 @@ class SettingsTab(ttk.Frame):
         ttk.Button(btn_box1, text="Browse...", command=self._browse_bin_dir).pack(side="left", padx=2)
         ttk.Button(btn_box1, text="Auto-Detect", command=self._auto_detect_bin).pack(side="left", padx=2)
         ttk.Button(btn_box1, text="Auto-Generate Conf Files", command=self._generate_configs).pack(side="left", padx=2)
+        ttk.Button(btn_box1, text="⚡ 1-Click Install Engine", command=self._open_auto_provisioning).pack(side="left", padx=2)
 
         ttk.Label(sec_clam, text="clamd Host / Port:").grid(row=1, column=0, sticky="w", pady=4)
         hp_frame = ttk.Frame(sec_clam)
@@ -315,6 +316,18 @@ class SettingsTab(ttk.Frame):
             messagebox.showinfo("ClamAV Found", f"Detected ClamAV binaries at:\n{detected_dir}")
         else:
             messagebox.showwarning("Not Found", "Could not locate clamscan.exe in standard directories or PATH.")
+
+    def _open_auto_provisioning(self) -> None:
+        from app.ui.setup_dialog import FirstRunSetupDialog
+        def _on_done():
+            self.load_values()
+            self.on_settings_saved()
+        FirstRunSetupDialog(
+            parent=self.winfo_toplevel(),
+            config_manager=self.config_manager,
+            engine=self.engine,
+            on_completed=_on_done,
+        )
 
     def _generate_configs(self) -> None:
         target_dir = self.bin_dir_var.get().strip()

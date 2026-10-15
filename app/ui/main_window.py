@@ -98,6 +98,27 @@ class MainWindow:
 
         if start_minimized:
             self.hide_to_tray()
+        else:
+            self.root.after(600, self._check_first_run_setup)
+
+    def _check_first_run_setup(self) -> None:
+        from app.core.auto_setup import AutoProvisioner
+        if AutoProvisioner.is_setup_needed(self.engine):
+            from app.ui.setup_dialog import FirstRunSetupDialog
+            def _on_done():
+                self.engine.refresh_engine()
+                if hasattr(self, "update_tab"):
+                    self.update_tab.refresh_info()
+                if hasattr(self, "settings_tab"):
+                    self.settings_tab.load_values()
+                self._update_all_states()
+
+            FirstRunSetupDialog(
+                parent=self.root,
+                config_manager=self.config_manager,
+                engine=self.engine,
+                on_completed=_on_done,
+            )
 
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
