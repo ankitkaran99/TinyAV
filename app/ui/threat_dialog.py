@@ -21,16 +21,19 @@ class ThreatNotificationDialog(tk.Toplevel):
         threat_name: str,
         auto_quarantined: bool,
         on_action: Optional[Callable[[], None]] = None,
+        on_dismiss: Optional[Callable[[], None]] = None,
     ):
         super().__init__()
         self.file_path = file_path
         self.threat_name = threat_name
         self.auto_quarantined = auto_quarantined
         self.on_action = on_action
+        self.on_dismiss = on_dismiss
 
         self.title("TinyAV - Threat Alert")
         self.geometry("520x240")
         self.resizable(False, False)
+        self.protocol("WM_DELETE_WINDOW", self._on_dismiss_click)
 
         # Center on screen
         self.update_idletasks()
@@ -113,10 +116,15 @@ class ThreatNotificationDialog(tk.Toplevel):
         btn_action = ttk.Button(btn_bar, text=action_btn_text, command=self._on_action_click)
         btn_action.pack(side="left", padx=(0, 6))
 
-        btn_dismiss = ttk.Button(btn_bar, text="Dismiss", command=self.destroy, width=12)
+        btn_dismiss = ttk.Button(btn_bar, text="Dismiss", command=self._on_dismiss_click, width=12)
         btn_dismiss.pack(side="right")
 
     def _on_action_click(self) -> None:
         self.destroy()
         if self.on_action:
             self.on_action()
+
+    def _on_dismiss_click(self) -> None:
+        self.destroy()
+        if self.on_dismiss:
+            self.on_dismiss()

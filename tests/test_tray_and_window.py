@@ -135,16 +135,66 @@ def test_threat_notification_dialog():
     root.withdraw()
 
     action_called = []
+    dismiss_called = []
     diag = ThreatNotificationDialog(
         file_path="C:\\Downloads\\trojan.exe",
         threat_name="Win32.Trojan.Generic",
         auto_quarantined=True,
         on_action=lambda: action_called.append(True),
+        on_dismiss=lambda: dismiss_called.append(True),
     )
 
     assert "Threat Alert" in diag.title()
-    diag._on_action_click()
-    assert len(action_called) == 1
+    diag._on_dismiss_click()
+    assert len(dismiss_called) == 1
+
+    try:
+        root.destroy()
+    except Exception:
+        pass
+
+
+def test_threat_removed_restores_idle_state(tmp_path):
+    root = tk.Tk()
+    root.withdraw()
+
+    cfg_mgr = ConfigManager(config_path=str(tmp_path / "cfg.json"))
+    engine = ClamAVEngine(cfg_mgr.config)
+    quar_mgr = QuarantineManager(quarantine_dir=str(tmp_path / "quar"))
+
+    tray_state_events = []
+    notebook = tk.ttk.Notebook(root)
+    from app.ui.tabs.scan_tab import ScanTab
+
+    scan_tab = ScanTab(
+        parent=notebook,
+        config_manager=cfg_mgr,
+        engine=engine,
+        quarantine_manager=quar_mgr,
+        ui_queue=queue.Queue(),
+        on_scan_state_change=lambda s: tray_state_events.append(s),
+    )
+
+    # Insert a detected threat
+    fake_file = str(tmp_path / "threat.exe")
+    with open(fake_file, "w") as f:
+        f.write("bad")
+
+    item_id = scan_tab.tree.insert("", "end", values=(fake_file, "Eicar-Test-Signature", "Detected"))
+    scan_tab.on_scan_state_change("threat")
+    assert tray_state_events[-1] == "threat"
+
+    # Now quarantine the item
+    scan_tab.tree.selection_set([item_id])
+    with patch("tkinter.messagebox.showinfo"):
+        scan_tab._quarantine_selected()
+
+    # The action in the tree should be "Quarantined"
+    vals = scan_tab.tree.item(item_id, "values")
+    assert vals[2] == "Quarantined"
+
+    # Once the threat is removed/quarantined, the tray state must return to 'idle' (green)
+    assert tray_state_events[-1] == "idle"
 
     try:
         root.destroy()

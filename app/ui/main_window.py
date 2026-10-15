@@ -183,6 +183,13 @@ class MainWindow:
         """Update tray icon according to app state: 'idle' | 'scanning' | 'updating' | 'threat'."""
         self.tray.set_state(state)
 
+    def _check_overall_threat_state(self) -> None:
+        """Restores tray icon to green ('idle') if no active/unresolved threats remain in ScanTab."""
+        if hasattr(self, "scan_tab"):
+            self.scan_tab._check_and_update_threat_state()
+        else:
+            self._set_app_state("idle")
+
     def _on_updater_status_change(self, status: str, is_updating: bool, err_msg: Optional[str]) -> None:
         if err_msg:
             self.tray.notify("Definition Update Failed", err_msg)
@@ -273,7 +280,9 @@ class MainWindow:
                             self.show_window(),
                             self.notebook.select(1),
                             self.quarantine_tab.refresh_items(),
+                            self._check_overall_threat_state(),
                         ),
+                        on_dismiss=self._check_overall_threat_state,
                     )
                 except Exception as diag_err:
                     logger.debug(f"Could not open ThreatNotificationDialog: {diag_err}")
@@ -298,6 +307,7 @@ class MainWindow:
                             self.show_window(),
                             self.notebook.select(0),
                         ),
+                        on_dismiss=self._check_overall_threat_state,
                     )
                 except Exception as diag_err:
                     logger.debug(f"Could not open ThreatNotificationDialog: {diag_err}")

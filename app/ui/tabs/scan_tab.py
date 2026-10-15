@@ -146,13 +146,19 @@ class ScanTab(ttk.Frame):
         action_bar.grid(row=1, column=0, columnspan=2, sticky="ew")
 
         self.quarantine_btn = ttk.Button(action_bar, text="Quarantine Selected", command=self._quarantine_selected)
-        self.quarantine_btn.pack(side="left", padx=(0, 6))
+        self.quarantine_btn.pack(side="left", padx=(0, 4))
+
+        self.quar_all_btn = ttk.Button(action_bar, text="Quarantine All", command=self._quarantine_all)
+        self.quar_all_btn.pack(side="left", padx=4)
 
         self.delete_btn = ttk.Button(action_bar, text="Delete Selected", command=self._delete_selected)
-        self.delete_btn.pack(side="left", padx=6)
+        self.delete_btn.pack(side="left", padx=4)
+
+        self.del_all_btn = ttk.Button(action_bar, text="Delete All", command=self._delete_all)
+        self.del_all_btn.pack(side="left", padx=4)
 
         self.ignore_btn = ttk.Button(action_bar, text="Ignore Selected", command=self._ignore_selected)
-        self.ignore_btn.pack(side="left", padx=6)
+        self.ignore_btn.pack(side="left", padx=4)
 
     def _refresh_drive_list(self) -> None:
         drives = DriveDetector.get_all_drives()
@@ -428,10 +434,43 @@ class ScanTab(ttk.Frame):
                 self.status_label.config(text="Scan complete. No threats detected.")
                 self.on_scan_state_change("idle")
 
+    def _check_and_update_threat_state(self) -> None:
+        """
+        Inspects all items in the detections tree.
+        If no unresolved threats remain (all are Quarantined, Deleted, or Ignored),
+        marks the tray icon green ('idle') again.
+        """
+        all_items = self.tree.get_children()
+        if not all_items:
+            self.on_scan_state_change("idle")
+            return
+
+        has_unresolved = False
+        resolved_count = 0
+        for item_id in all_items:
+            vals = self.tree.item(item_id, "values")
+            action = vals[2] if len(vals) > 2 else ""
+            if action in ("Quarantined", "Deleted", "Ignored"):
+                resolved_count += 1
+            else:
+                has_unresolved = True
+
+        if not has_unresolved:
+            logger.info(f"All {resolved_count} detected threats resolved. Restoring tray icon to green (idle).")
+            self.on_scan_state_change("idle")
+            self.threats_lbl.config(text=f"Infected: 0 (Resolved)", foreground="#28a745")
+            self.status_label.config(text=f"All {resolved_count} threat(s) neutralized and removed.")
+
     def _quarantine_selected(self) -> None:
         selected_items = self.tree.selection()
         if not selected_items:
-            messagebox.showinfo("TinyAV", "Please select one or more detected files to quarantine.")
+            # If nothing specifically selected, select all unresolved items
+            selected_items = [
+                i for i in self.tree.get_children()
+                if self.tree.item(i, "values")[2] not in ("Quarantined", "Deleted", "Ignored")
+            ]
+        if not selected_items:
+            messagebox.showinfo("TinyAV", "No unresolved threats to quarantine.")
             return
 
         quarantined_count = 0
@@ -448,12 +487,29 @@ class ScanTab(ttk.Frame):
         if quarantined_count > 0:
             self.ui_queue.put(("QUARANTINE_UPDATED", None))
 
+        self._check_and_update_threat_state()
         messagebox.showinfo("TinyAV", f"Quarantined {quarantined_count} file(s).")
+
+    def _quarantine_all(self) -> None:
+        unresolved = [
+            i for i in self.tree.get_children()
+            if self.tree.item(i, "values")[2] not in ("Quarantined", "Deleted", "Ignored")
+        ]
+        if not unresolved:
+            messagebox.showinfo("TinyAV", "No unresolved threats to quarantine.")
+            return
+        self.tree.selection_set(unresolved)
+        self._quarantine_selected()
 
     def _delete_selected(self) -> None:
         selected_items = self.tree.selection()
         if not selected_items:
-            messagebox.showinfo("TinyAV", "Please select one or more detected files to delete.")
+            selected_items = [
+                i for i in self.tree.get_children()
+                if self.tree.item(i, "values")[2] not in ("Quarantined", "Deleted", "Ignored")
+            ]
+        if not selected_items:
+            messagebox.showinfo("TinyAV", "No unresolved threats to delete.")
             return
 
         confirm = messagebox.askyesno(
@@ -477,9 +533,28 @@ class ScanTab(ttk.Frame):
                 logger.error(f"Failed to delete {file_path}: {exc}")
                 self.tree.set(item_id, "action", "Delete Failed")
 
+        self._check_and_update_threat_state()
         messagebox.showinfo("TinyAV", f"Deleted {deleted_count} file(s).")
+
+    def _delete_all(self) -> None:
+        unresolved = [
+            i for i in self.tree.get_children()
+            if self.tree.item(i, "values")[2] not in ("Quarantined", "Deleted", "Ignored")
+        ]
+        if not unresolved:
+            messagebox.showinfo("TinyAV", "No unresolved threats to delete.")
+            return
+        self.tree.selection_set(unresolved)
+        self._delete_selected()
 
     def _ignore_selected(self) -> None:
         selected_items = self.tree.selection()
+        if not selected_items:
+            selected_items = [
+                i for i in self.tree.get_children()
+                if self.tree.item(i, "values")[2] not in ("Quarantined", "Deleted", "Ignored")
+            ]
         for item_id in selected_items:
             self.tree.set(item_id, "action", "Ignored")
+
+        self._check_and_update_threat_state()
