@@ -4,11 +4,15 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![ClamAV 1.0+](https://img.shields.io/badge/ClamAV-1.0+-green.svg)](https://www.clamav.net/)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg)](https://www.microsoft.com/windows)
-[![Tests Passing](https://img.shields.io/badge/tests-25%20passed-success.svg)](#running-unit-tests)
+[![Tests Passing](https://img.shields.io/badge/tests-52%20passed-success.svg)](#running-unit-tests)
 
 **TinyAV** is a lightweight, responsive desktop antivirus companion and system tray utility for Windows that wraps the open-source **ClamAV** engine (`clamd`, `clamscan`, and `freshclam`).
 
 It provides modern Windows integration—including context menu scanning, USB drive auto-detection, real-time folder monitoring, scheduled signature updates, one-click ClamAV configuration generation, and in-place binary upgrades from official Cisco-Talos GitHub releases—without the heavy overhead or system slowdown of invasive kernel minifilter drivers.
+
+<p align="center">
+  <img src="docs/images/tinyav-screenshot.png" alt="TinyAV - ClamAV Windows Companion" width="850" />
+</p>
 
 ---
 
@@ -284,14 +288,18 @@ To automatically scan files when downloaded:
 
 ---
 
-## Packaging Standalone Executable (PyInstaller)
+## Packaging Standalone Executable & Portable Release
 
-TinyAV is architected to compile into a standalone Windows `.exe`:
+TinyAV includes a 1-click build script to generate a standalone Windows executable (`TinyAV.exe`) and portable zip release without requiring end users to install Python:
 
 ```powershell
-pip install pyinstaller
-pyinstaller --noconsole --name TinyAV --icon app/assets/icon.ico main.py
+python build.py
 ```
+Or simply double-click `build_exe.bat`.
+
+This automatically compiles the application using `TinyAV.spec` into:
+- `dist\TinyAV\TinyAV.exe` — Standalone folder release
+- `dist\TinyAV-Portable.zip` — Portable single-archive distribution
 
 When frozen with PyInstaller, TinyAV detects `sys.frozen` automatically and adjusts registry integration commands and elevated execution parameters accordingly.
 
