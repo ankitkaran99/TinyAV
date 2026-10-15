@@ -210,8 +210,10 @@ TinyAV/
 │   └── test_startup.py
 ├── main.py                      # Main application entry point & CLI handler
 ├── requirements.txt             # Python dependencies
-├── setup_startup.bat            # Windows startup & desktop shortcuts setup script
-├── start_tray.vbs               # Windowless zero-console tray launcher
+├── build.py                     # Standalone packaging & portable release builder
+├── build_exe.bat                # 1-Click Windows build script
+├── installer.iss                # Inno Setup Windows installer script
+├── TinyAV.spec                  # PyInstaller build specification
 └── README.md                    # Project documentation
 ```
 
@@ -221,7 +223,7 @@ TinyAV/
 
 - **Operating System**: Windows 10 or Windows 11 (64-bit x64 or ARM64).
 - **Python**: Python 3.10 or newer (tested with Python 3.10 – 3.14).
-- **ClamAV**: Any official release of ClamAV for Windows.
+- **ClamAV**: Any official release of ClamAV for Windows (or auto-installed via TinyAV wizard).
 
 ---
 
@@ -255,16 +257,11 @@ If you prefer developing or running TinyAV directly from the Python source code:
    ```powershell
    python main.py --minimized
    ```
-   Or simply double-click **`start_tray.vbs`** for an instant windowless launch directly into the system tray!
 
-5. **Auto-Start at Windows Login (One-Click Setup)**:
-   - Double-click **`setup_startup.bat`** to open the interactive setup menu, or run from terminal:
-     ```cmd
-     setup_startup.bat --enable
-     ```
-   - This automatically creates a shortcut in `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\TinyAV.lnk` pointing to `pythonw.exe` with `--minimized` and the custom shield icon.
-   - TinyAV will now automatically launch silently in the background at every Windows login directly in your system tray without showing a black console window!
-   - You can also create a Desktop shortcut (`setup_startup.bat --desktop`) or disable auto-start anytime (`setup_startup.bat --disable`).
+5. **Auto-Start at Windows Login**:
+   - Open TinyAV and navigate to the **Settings** tab.
+   - Under **Windows Explorer & Auto-Start Integration**, toggle **Launch TinyAV automatically at Windows login**.
+   - TinyAV configures the Windows Run registry natively to launch silently in the background at every user login without any console window!
 
 ---
 
