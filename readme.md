@@ -4,6 +4,8 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![ClamAV 1.0+](https://img.shields.io/badge/ClamAV-1.0+-green.svg)](https://www.clamav.net/)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg)](https://www.microsoft.com/windows)
+[![Latest Release](https://img.shields.io/github/v/release/ankitkaran99/TinyAV?color=0078D6&label=latest%20release)](https://github.com/ankitkaran99/TinyAV/releases/latest)
+[![Download](https://img.shields.io/badge/Download-TinyAV--Portable.zip-success?logo=windows)](https://github.com/ankitkaran99/TinyAV/releases/latest)
 [![Tests Passing](https://img.shields.io/badge/tests-52%20passed-success.svg)](#running-unit-tests)
 
 **TinyAV** is a lightweight, responsive desktop antivirus companion and system tray utility for Windows that wraps the open-source **ClamAV** engine (`clamd`, `clamscan`, and `freshclam`).
@@ -17,6 +19,7 @@ It provides modern Windows integration—including context menu scanning, USB dr
 ---
 
 ## Table of Contents
+- [Download Releases (Click & Run)](#-download-releases-click--run)
 - [Features](#features)
   - [1. Scanning & Engine Capabilities](#1-scanning--engine-capabilities)
   - [2. Real-Time Directory Monitoring](#2-real-time-directory-monitoring)
@@ -28,17 +31,35 @@ It provides modern Windows integration—including context menu scanning, USB dr
   - [8. Windows Shell & System Tray Integration](#8-windows-shell--system-tray-integration)
 - [Architecture & Design](#architecture--design)
 - [Project Structure](#project-structure)
-- [Prerequisites](#prerequisites)
-- [Installation & Quick Start](#installation--quick-start)
+- [Installation & Developer Setup](#-installation--developer-setup)
 - [Setup & Configuration Guide](#setup--configuration-guide)
   - [Step 1: Install ClamAV](#step-1-install-clamav)
   - [Step 2: Auto-Generate Optimized Configuration Files](#step-2-auto-generate-optimized-configuration-files)
   - [Step 3: Update Virus Signatures](#step-3-update-virus-signatures)
   - [Step 4: Enable Windows Explorer Context Menu (Optional)](#step-4-enable-windows-explorer-context-menu-optional)
   - [Step 5: Configure Real-Time Folder Monitoring (Optional)](#step-5-configure-real-time-folder-monitoring-optional)
-- [Packaging Standalone Executable (PyInstaller)](#packaging-standalone-executable-pyinstaller)
+- [Packaging Standalone Executable & Portable Release](#packaging-standalone-executable--portable-release)
 - [Running Unit Tests](#running-unit-tests)
 - [License](#license)
+
+---
+
+## 📥 Download Releases (Click & Run)
+
+> [!TIP]
+> **No Python setup required.** TinyAV is available as a pre-compiled standalone Windows release that works out of the box.
+
+| Package | Format | Description | Download |
+| :--- | :--- | :--- | :--- |
+| **TinyAV Portable** | `.zip` | Standalone portable folder. Just extract and run `TinyAV.exe`. | **[Download Latest Release](https://github.com/ankitkaran99/TinyAV/releases/latest)** |
+| **TinyAV Installer** | `.exe` | Windows setup wizard with Start Menu and desktop shortcut creation. | **[Download Setup Wizard](https://github.com/ankitkaran99/TinyAV/releases/latest)** |
+
+### 🚀 Getting Started in 3 Steps:
+1. **Download & Extract**: Grab the latest `TinyAV-Portable.zip` from **[GitHub Releases](https://github.com/ankitkaran99/TinyAV/releases/latest)** and extract it to any folder (e.g. `C:\Tools\TinyAV` or `%LOCALAPPDATA%\Programs\TinyAV`).
+2. **Launch `TinyAV.exe`**: Double-click `TinyAV.exe`.
+3. **1-Click Engine Bootstrap**: If ClamAV is not already installed on your PC, TinyAV automatically launches the **1-Click Engine Setup Wizard**:
+   - Click **Start 1-Click Setup**.
+   - TinyAV will download the latest official ClamAV Windows binaries from Cisco-Talos, generate optimized `clamd.conf` and `freshclam.conf` files, download initial virus definitions, and initialize background scanning.
 
 ---
 
@@ -204,9 +225,11 @@ TinyAV/
 
 ---
 
-## Installation & Quick Start
+## 🛠️ Installation & Developer Setup
 
-1. **Clone or extract TinyAV**:
+If you prefer developing or running TinyAV directly from the Python source code:
+
+1. **Clone TinyAV**:
    ```powershell
    git clone https://github.com/ankitkaran99/TinyAV.git
    cd TinyAV
