@@ -106,12 +106,17 @@ class MainWindow:
         if AutoProvisioner.is_setup_needed(self.engine):
             from app.ui.setup_dialog import FirstRunSetupDialog
             def _on_done():
-                self.engine.refresh_engine()
-                if hasattr(self, "update_tab"):
-                    self.update_tab.refresh_info()
-                if hasattr(self, "settings_tab"):
-                    self.settings_tab.load_values()
-                self._update_all_states()
+                try:
+                    self.engine.refresh_engine()
+                    if hasattr(self, "update_tab"):
+                        self.update_tab.refresh_info()
+                    if hasattr(self, "settings_tab"):
+                        self.settings_tab.load_values()
+                    if hasattr(self, "quarantine_tab"):
+                        self.quarantine_tab.refresh_items()
+                    self._set_app_state("idle")
+                except Exception as exc:
+                    logger.error(f"Error in setup on_done: {exc}", exc_info=True)
 
             FirstRunSetupDialog(
                 parent=self.root,

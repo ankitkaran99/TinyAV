@@ -32,6 +32,7 @@ class FirstRunSetupDialog(tk.Toplevel):
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self._on_skip)
 
         self._center_window(parent)
         self._build_ui()
@@ -165,17 +166,20 @@ class FirstRunSetupDialog(tk.Toplevel):
         def completion_cb(ok: bool, msg: str):
             def _finish():
                 if ok:
+                    self.progress_var.set(100.0)
                     self.status_lbl.config(text="✓ Setup complete! TinyAV is fully active.", foreground="#28a745")
                     self.install_btn.config(text="Finish", state="normal", command=self._on_success)
-                    if self.on_completed:
-                        self.on_completed()
-                    messagebox.showinfo("TinyAV Ready", "ClamAV engine has been installed and configured!\nTinyAV is now protecting your computer.")
-                    self.destroy()
+                    self.manual_btn.config(state="disabled")
+                    self.install_btn.focus_set()
                 else:
                     self.status_lbl.config(text=f"Setup encountered an issue: {msg}", foreground="#dc3545")
-                    self.install_btn.config(text="Retry", state="normal")
+                    self.install_btn.config(text="Retry", state="normal", command=self._start_provisioning)
                     self.manual_btn.config(state="normal")
-                    messagebox.showerror("Setup Error", f"Could not complete automatic setup:\n{msg}\n\nYou can configure ClamAV manually in the Settings tab.")
+                    messagebox.showerror(
+                        "Setup Error",
+                        f"Could not complete automatic setup:\n{msg}\n\nYou can configure ClamAV manually in the Settings tab.",
+                        parent=self,
+                    )
             self.after(0, _finish)
 
         self.provisioner.run_provisioning_async(
@@ -186,9 +190,22 @@ class FirstRunSetupDialog(tk.Toplevel):
         )
 
     def _on_success(self) -> None:
-        if self.on_completed:
-            self.on_completed()
-        self.destroy()
+        try:
+            if self.on_completed:
+                self.on_completed()
+        except Exception as exc:
+            from app.core.logger import get_logger
+            get_logger().error(f"Error executing on_completed callback: {exc}", exc_info=True)
+        finally:
+            try:
+                self.grab_release()
+            except Exception:
+                pass
+            self.destroy()
 
     def _on_skip(self) -> None:
+        try:
+            self.grab_release()
+        except Exception:
+            pass
         self.destroy()
