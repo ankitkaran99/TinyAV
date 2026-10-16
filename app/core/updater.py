@@ -134,13 +134,6 @@ class UpdateManager:
                     daily_ver = str(max(int_versions))
 
         if daily_ver:
-            extra = []
-            if main_ver:
-                extra.append(f"Main: {main_ver}")
-            if byte_ver:
-                extra.append(f"Bytecode: {byte_ver}")
-            if extra:
-                return f"Daily ver. {daily_ver} ({', '.join(extra)})"
             return f"Daily ver. {daily_ver}"
 
         return "Up to date"

@@ -134,11 +134,9 @@ def test_parse_definition_version_distinguishes_daily_and_bytecode():
         "Fri Oct 16 12:02:32 2026 -> bytecode.cvd database is up-to-date (version: 339, sigs: 80, f-level: 90, builder: nrandolp)\n"
     )
     result = upd.parse_definition_version(sample_out)
-    assert "Daily ver. 28155" in result
-    assert "Bytecode: 339" in result
-    assert not result.startswith("Daily ver. 339")
+    assert result == "Daily ver. 28155"
 
     # Output without daily in text falls back to engine version
     fallback_out = "bytecode.cvd (version: 339)"
     result_fallback = upd.parse_definition_version(fallback_out)
-    assert "Daily ver. 28155" in result_fallback
+    assert result_fallback == "Daily ver. 28155"

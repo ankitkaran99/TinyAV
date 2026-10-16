@@ -183,12 +183,12 @@ class UpdateTab(ttk.Frame):
             }.get(self.engine.mode, "Unknown")
             self.mode_val_lbl.config(text=mode_text)
 
-            # If definition_version is stuck on 339 or Unknown, extract accurate version from engine
+            # If definition_version is stuck on 339, contains extra details, or is Unknown, extract accurate version from engine
             def_ver = self.config_manager.config.definition_version
-            if (def_ver == "Daily ver. 339" or def_ver == "Unknown") and self.engine.engine_version:
+            if (def_ver == "Daily ver. 339" or def_ver == "Unknown" or "(" in def_ver) and self.engine.engine_version:
                 m_eng = re.search(r"/\s*(\d{4,6})\s*/", self.engine.engine_version)
                 if m_eng:
-                    def_ver = f"Daily ver. {m_eng.group(1)} (Bytecode: 339)"
+                    def_ver = f"Daily ver. {m_eng.group(1)}"
                     self.config_manager.update(definition_version=def_ver)
 
             self.eng_ver_lbl.config(text=self.engine.engine_version)
