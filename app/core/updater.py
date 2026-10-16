@@ -13,6 +13,9 @@ from app.core.logger import get_logger
 logger = get_logger()
 
 VERSION_REGEX = re.compile(r"version:\s*(\d+)", re.IGNORECASE)
+DAILY_REGEX = re.compile(r"daily(?:\.(?:cld|cvd))?.*?version:\s*(\d+)", re.IGNORECASE)
+MAIN_REGEX = re.compile(r"main(?:\.(?:cld|cvd))?.*?version:\s*(\d+)", re.IGNORECASE)
+BYTECODE_REGEX = re.compile(r"bytecode(?:\.(?:cld|cvd))?.*?version:\s*(\d+)", re.IGNORECASE)
 
 class UpdateManager:
     def __init__(self, config_manager: ConfigManager, engine: ClamAVEngine):
@@ -102,6 +105,46 @@ class UpdateManager:
         if callback:
             callback(success, message)
 
+    def parse_definition_version(self, freshclam_output: str) -> str:
+        """
+        Extracts accurate ClamAV database definition versions from freshclam output.
+        Correctly distinguishes between daily, main, and bytecode databases to prevent
+        the static bytecode version (e.g. 339) from overshadowing the daily version (e.g. 28155).
+        """
+        daily_match = DAILY_REGEX.search(freshclam_output)
+        main_match = MAIN_REGEX.search(freshclam_output)
+        bytecode_match = BYTECODE_REGEX.search(freshclam_output)
+
+        daily_ver = daily_match.group(1) if daily_match else None
+        main_ver = main_match.group(1) if main_match else None
+        byte_ver = bytecode_match.group(1) if bytecode_match else None
+
+        # Fallback to engine version (e.g. ClamAV 1.5.4/28155/...) if daily was not in output
+        if not daily_ver and hasattr(self, "engine") and self.engine and self.engine.engine_version:
+            m_eng = re.search(r"/\s*(\d{4,6})\s*/", self.engine.engine_version)
+            if m_eng:
+                daily_ver = m_eng.group(1)
+
+        # Fallback to highest numeric version from general version regex (daily is 28000+)
+        if not daily_ver:
+            versions = VERSION_REGEX.findall(freshclam_output)
+            if versions:
+                int_versions = [int(v) for v in versions if v.isdigit()]
+                if int_versions:
+                    daily_ver = str(max(int_versions))
+
+        if daily_ver:
+            extra = []
+            if main_ver:
+                extra.append(f"Main: {main_ver}")
+            if byte_ver:
+                extra.append(f"Bytecode: {byte_ver}")
+            if extra:
+                return f"Daily ver. {daily_ver} ({', '.join(extra)})"
+            return f"Daily ver. {daily_ver}"
+
+        return "Up to date"
+
     def run_update(self, is_scheduled: bool = False) -> Tuple[bool, str]:
         with self._lock:
             if self.is_updating:
@@ -148,9 +191,8 @@ class UpdateManager:
             # freshclam exit code: 0 = databases updated or up to date, 1 = error, 2 = config error
             success = proc.returncode == 0
 
-            # Extract version from output if present
-            versions = VERSION_REGEX.findall(full_out)
-            latest_version = f"Daily ver. {versions[-1]}" if versions else "Up to date"
+            # Extract accurate daily database version from output
+            latest_version = self.parse_definition_version(full_out)
 
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             if success:

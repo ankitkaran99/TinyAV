@@ -117,3 +117,28 @@ def test_check_for_updates_mocked(tmp_path):
         assert info.zip_asset.name == "clamav-1.5.4.win.x64.zip"
         assert info.msi_asset is not None
         assert info.msi_asset.name == "clamav-1.5.4.win.x64.msi"
+
+
+def test_parse_definition_version_distinguishes_daily_and_bytecode():
+    from app.core.updater import UpdateManager
+    cm = MagicMock()
+    eng = MagicMock()
+    eng.engine_version = "ClamAV 1.5.4/28155/Fri Oct 16 11:54:17 2026"
+    upd = UpdateManager(cm, eng)
+
+    # Output containing daily, main, and bytecode
+    sample_out = (
+        "ClamAV update process started at Fri Oct 16 12:02:32 2026\n"
+        "Fri Oct 16 12:02:32 2026 -> daily.cld database is up-to-date (version: 28155, sigs: 355765, f-level: 90, builder: svc.clamav-publisher)\n"
+        "Fri Oct 16 12:02:32 2026 -> main.cvd database is up-to-date (version: 63, sigs: 3287027, f-level: 90, builder: tomjudge)\n"
+        "Fri Oct 16 12:02:32 2026 -> bytecode.cvd database is up-to-date (version: 339, sigs: 80, f-level: 90, builder: nrandolp)\n"
+    )
+    result = upd.parse_definition_version(sample_out)
+    assert "Daily ver. 28155" in result
+    assert "Bytecode: 339" in result
+    assert not result.startswith("Daily ver. 339")
+
+    # Output without daily in text falls back to engine version
+    fallback_out = "bytecode.cvd (version: 339)"
+    result_fallback = upd.parse_definition_version(fallback_out)
+    assert "Daily ver. 28155" in result_fallback
