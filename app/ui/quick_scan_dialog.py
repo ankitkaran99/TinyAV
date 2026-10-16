@@ -8,6 +8,7 @@ from typing import Callable, List, Optional
 
 from app.core.config import ConfigManager
 from app.core.engine import ClamAVEngine, ScanDetection, ScanSummary
+from app.core.file_filters import should_skip_dir, should_skip_file
 from app.core.logger import get_logger
 from app.core.quarantine import QuarantineManager
 from app.platform_win.win_drives import DriveInfo
@@ -170,14 +171,17 @@ class QuickScanWindow(tk.Toplevel):
         elif os.path.isdir(self.target_path):
             for root, dirs, fnames in os.walk(self.target_path, topdown=True):
                 if self.cancel_event.is_set():
+                    dirs.clear()
                     break
-                if quar_dir:
-                    dirs[:] = [
-                        d for d in dirs
-                        if not os.path.normcase(os.path.abspath(os.path.join(root, d))).startswith(quar_dir)
-                    ]
+                # Prune quarantine directory and ignored system directories
+                dirs[:] = [
+                    d for d in dirs
+                    if not should_skip_dir(d)
+                    and (not quar_dir or not os.path.normcase(os.path.abspath(os.path.join(root, d))).startswith(quar_dir))
+                ]
                 for fn in fnames:
-                    files.append(os.path.join(root, fn))
+                    if not should_skip_file(fn):
+                        files.append(os.path.join(root, fn))
         return files
 
     def _scan_thread(self) -> None:

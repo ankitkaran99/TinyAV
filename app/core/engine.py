@@ -10,6 +10,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import clamd
 from app.core.config import AppConfig
+from app.core.file_filters import should_skip_file
 from app.core.logger import get_logger
 
 logger = get_logger()
@@ -204,6 +205,10 @@ class ClamAVEngine:
         Scans a single file using the active engine.
         Returns: (status: 'OK' | 'FOUND' | 'ERROR', threat_name, error_msg)
         """
+        # Never scan OS metadata files like desktop.ini or thumbs.db
+        if should_skip_file(file_path):
+            return "OK", None, None
+
         if not os.path.isfile(file_path):
             return "ERROR", None, f"File does not exist: {file_path}"
 
@@ -290,6 +295,9 @@ class ClamAVEngine:
         """
         start_time = time.time()
         summary = ScanSummary()
+
+        # Filter out OS metadata/system files (desktop.ini, thumbs.db, etc.)
+        file_paths = [p for p in file_paths if not should_skip_file(p)]
         total = len(file_paths)
         if total == 0:
             summary.duration_seconds = time.time() - start_time

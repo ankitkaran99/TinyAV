@@ -8,6 +8,7 @@ from typing import Callable, List, Optional
 
 from app.core.config import ConfigManager
 from app.core.engine import ClamAVEngine, ScanDetection, ScanSummary
+from app.core.file_filters import should_skip_dir, should_skip_file
 from app.core.logger import get_logger
 from app.core.process_scanner import ProcessFileCollector
 from app.core.quarantine import QuarantineManager
@@ -310,14 +311,15 @@ class ScanTab(ttk.Frame):
                     if self.cancel_event.is_set():
                         dirs.clear()
                         break
-                    # Prune quarantine directory from traversal
-                    if quar_dir:
-                        dirs[:] = [
-                            d for d in dirs
-                            if not os.path.normcase(os.path.abspath(os.path.join(root, d))).startswith(quar_dir)
-                        ]
+                    # Prune quarantine directory and ignored system directories
+                    dirs[:] = [
+                        d for d in dirs
+                        if not should_skip_dir(d)
+                        and (not quar_dir or not os.path.normcase(os.path.abspath(os.path.join(root, d))).startswith(quar_dir))
+                    ]
                     for f in files:
-                        files_to_scan.append(os.path.join(root, f))
+                        if not should_skip_file(f):
+                            files_to_scan.append(os.path.join(root, f))
             return files_to_scan
 
         if scope == "files":
@@ -326,7 +328,7 @@ class ScanTab(ttk.Frame):
                 return []
             parts = [p.strip() for p in raw.split(";") if p.strip()]
             for p in parts:
-                if os.path.isfile(p):
+                if os.path.isfile(p) and not should_skip_file(p):
                     files_to_scan.append(p)
             return files_to_scan
 
@@ -338,14 +340,15 @@ class ScanTab(ttk.Frame):
                 if self.cancel_event.is_set():
                     dirs.clear()
                     break
-                # Prune quarantine directory from traversal
-                if quar_dir:
-                    dirs[:] = [
-                        d for d in dirs
-                        if not os.path.normcase(os.path.abspath(os.path.join(root, d))).startswith(quar_dir)
-                    ]
+                # Prune quarantine directory and ignored system directories
+                dirs[:] = [
+                    d for d in dirs
+                    if not should_skip_dir(d)
+                    and (not quar_dir or not os.path.normcase(os.path.abspath(os.path.join(root, d))).startswith(quar_dir))
+                ]
                 for f in files:
-                    files_to_scan.append(os.path.join(root, f))
+                    if not should_skip_file(f):
+                        files_to_scan.append(os.path.join(root, f))
             return files_to_scan
 
         return files_to_scan

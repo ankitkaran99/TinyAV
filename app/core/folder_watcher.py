@@ -8,34 +8,17 @@ from watchdog.observers import Observer
 
 from app.core.config import ConfigManager
 from app.core.engine import ClamAVEngine, ScanDetection
+from app.core.file_filters import (
+    IGNORED_DIR_NAMES,
+    IGNORED_FILE_NAMES,
+    TEMP_EXTENSIONS,
+    should_skip_dir,
+    should_skip_file,
+)
 from app.core.logger import get_logger
 from app.core.quarantine import QuarantineManager
 
 logger = get_logger()
-
-# Common browser download temp extensions to ignore until finalized, plus quarantine extension
-TEMP_EXTENSIONS = {
-    ".crdownload",   # Google Chrome, Microsoft Edge, Brave, Vivaldi
-    ".tmp",          # Generic temp files
-    ".part",         # Mozilla Firefox
-    ".partial",      # Internet Explorer / wget
-    ".downloading",  # Torrent clients / generic downloaders
-    ".opdownload",   # Opera browser
-    ".quarantine",   # TinyAV quarantine files
-    ".!ut",          # uTorrent
-    ".download",     # Safari / Chrome Mac / generic
-    ".temp",
-}
-
-# Directories to ignore during recursive monitoring (archive extraction metadata / caches)
-IGNORED_DIR_NAMES = {
-    "__macosx",
-    ".git",
-    ".svn",
-    ".vs",
-    ".vscode",
-    "node_modules",
-}
 
 
 class QueuedFile:
@@ -154,15 +137,14 @@ class RealtimeFolderWatcher:
             if norm == quar_norm or norm.startswith(quar_norm.rstrip("\\/") + os.sep):
                 return False
 
-        # Exclude temporary and quarantine extensions
-        _, ext = os.path.splitext(norm)
-        if ext in TEMP_EXTENSIONS:
+        # Exclude OS metadata files like desktop.ini, thumbs.db, and temporary files
+        if should_skip_file(clean_path):
             return False
 
         # Exclude archive/extraction metadata directories
         path_parts = norm.replace("/", "\\").split("\\")
         for part in path_parts:
-            if part in IGNORED_DIR_NAMES:
+            if should_skip_dir(part):
                 return False
 
         for wd in self.config_manager.config.watched_directories:
@@ -258,8 +240,10 @@ class RealtimeFolderWatcher:
             return
         try:
             for root, dirs, files in os.walk(dir_path):
-                dirs[:] = [d for d in dirs if d.lower() not in IGNORED_DIR_NAMES]
+                dirs[:] = [d for d in dirs if not should_skip_dir(d)]
                 for f in files:
+                    if should_skip_file(f):
+                        continue
                     full_p = os.path.join(root, f)
                     if self.is_path_watched(full_p):
                         self.queue_scan(full_p)
@@ -280,12 +264,8 @@ class RealtimeFolderWatcher:
         if ":" in path_tail:
             clean_path = drive + path_tail.split(":", 1)[0]
 
-        _, ext = os.path.splitext(clean_path.lower())
-        if ext in TEMP_EXTENSIONS:
-            return
-
-        fname = os.path.basename(clean_path)
-        if fname.startswith("~") or fname.startswith("."):
+        # Never scan OS metadata files like desktop.ini, thumbs.db, or temporary files
+        if should_skip_file(clean_path):
             return
 
         norm_path = os.path.normcase(os.path.abspath(clean_path))
