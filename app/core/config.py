@@ -47,6 +47,8 @@ class AppConfig:
     realtime_watch_enabled: bool = True
     watched_directories: list[str] = field(default_factory=get_default_watched_dirs)
     realtime_auto_quarantine: bool = True
+    # USB autorun immunization configuration
+    usb_autorun_immunize: bool = True
 
 class ConfigManager:
     def __init__(self, config_path: str = ""):

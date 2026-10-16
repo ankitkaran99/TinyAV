@@ -233,11 +233,22 @@ class SettingsTab(ttk.Frame):
             command=self._on_startup_toggle,
         ).pack(side="left")
 
-        # Section 6: Removable Drives & Logs
+        # Section 6: Removable Drives & Diagnostics
         sec_misc = ttk.LabelFrame(scrollable_frame, text="Removable Drives & Diagnostics", padding=(10, 8))
         sec_misc.pack(fill="x", expand=True, pady=6)
 
-        ttk.Button(sec_misc, text="Reset Remembered Drive Rules", command=self._clear_remembered_drives).pack(anchor="w", pady=3)
+        self.usb_immunize_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            sec_misc,
+            text="USB Autorun Immunize: Automatically rename 'autorun.inf' on writable USB drives to 'autorun.inf.tiny'",
+            variable=self.usb_immunize_var,
+        ).pack(anchor="w", pady=(2, 4))
+
+        drive_btn_frame = ttk.Frame(sec_misc)
+        drive_btn_frame.pack(anchor="w", pady=(2, 4))
+        ttk.Button(drive_btn_frame, text="🛡️ Immunize Connected USB Drives Now", command=self._immunize_drives_now).pack(side="left", padx=(0, 6))
+        ttk.Button(drive_btn_frame, text="Reset Remembered Drive Rules", command=self._clear_remembered_drives).pack(side="left", padx=6)
+
         ttk.Button(sec_misc, text="Open Diagnostics Log Folder", command=self._open_logs_folder).pack(anchor="w", pady=3)
 
         # Bottom action bar
@@ -257,6 +268,7 @@ class SettingsTab(ttk.Frame):
         self.rt_enabled_var.set(cfg.realtime_watch_enabled)
         self.rt_auto_quar_var.set(cfg.realtime_auto_quarantine)
         self.notify_clean_var.set(cfg.notify_on_clean)
+        self.usb_immunize_var.set(cfg.usb_autorun_immunize)
 
         # Populate watched directories listbox
         self.watched_listbox.delete(0, "end")
@@ -606,6 +618,23 @@ class SettingsTab(ttk.Frame):
         self.config_manager.update(remembered_drives={})
         messagebox.showinfo("TinyAV", "Cleared all remembered USB drive preferences.")
 
+    def _immunize_drives_now(self) -> None:
+        try:
+            from app.platform_win.autorun_immunizer import immunize_all_removable_drives
+            count = immunize_all_removable_drives()
+            if count > 0:
+                messagebox.showinfo(
+                    "USB Immunization",
+                    f"Successfully immunized {count} removable drive(s).\nRenamed 'autorun.inf' -> 'autorun.inf.tiny'.",
+                )
+            else:
+                messagebox.showinfo(
+                    "USB Immunization",
+                    "No 'autorun.inf' files were found on connected writable removable drives.",
+                )
+        except Exception as exc:
+            messagebox.showerror("Immunization Error", f"Failed to immunize removable drives:\n{exc}")
+
     def _open_logs_folder(self) -> None:
         log_dir = get_default_log_dir()
         if os.path.exists(log_dir):
@@ -643,6 +672,7 @@ class SettingsTab(ttk.Frame):
             watched_directories=watched_dirs,
             realtime_auto_quarantine=self.rt_auto_quar_var.get(),
             notify_on_clean=self.notify_clean_var.get(),
+            usb_autorun_immunize=self.usb_immunize_var.get(),
         )
 
         self.update_manager.reschedule(

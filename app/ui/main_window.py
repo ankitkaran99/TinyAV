@@ -447,6 +447,20 @@ class MainWindow:
                 self.exit_app()
         elif event_type == "USB_ATTACHED":
             drive_info: DriveInfo = data
+
+            # Check USB Autorun Immunization
+            if self.config_manager.config.usb_autorun_immunize and drive_info.is_removable:
+                try:
+                    from app.platform_win.autorun_immunizer import immunize_drive
+                    immunized, imm_msg = immunize_drive(drive_info.letter)
+                    if immunized:
+                        self.tray.notify(
+                            "USB Drive Immunized",
+                            f"Renamed autorun.inf to autorun.inf.tiny on {drive_info.letter} ({drive_info.label}).",
+                        )
+                except Exception as imm_err:
+                    logger.debug(f"USB immunization error: {imm_err}")
+
             pref = self.config_manager.config.remembered_drives.get(drive_info.serial_number)
             if pref == "auto_scan":
                 self.show_window()

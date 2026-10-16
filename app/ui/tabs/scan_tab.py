@@ -307,6 +307,14 @@ class ScanTab(ttk.Frame):
                     break
                 if not os.path.exists(root_dir):
                     continue
+
+                if self.config_manager.config.usb_autorun_immunize:
+                    try:
+                        from app.platform_win.autorun_immunizer import immunize_drive
+                        immunize_drive(root_dir)
+                    except Exception:
+                        pass
+
                 for root, dirs, files in os.walk(root_dir, topdown=True):
                     if self.cancel_event.is_set():
                         dirs.clear()
