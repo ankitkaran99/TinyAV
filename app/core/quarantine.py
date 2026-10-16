@@ -131,16 +131,22 @@ class QuarantineManager:
             logger.error(f"Failed to restore item {item_id}: {exc}")
             return False
 
+    @staticmethod
+    def _safe_remove(path: str) -> None:
+        try:
+            if os.name == "nt" and os.path.exists(path):
+                os.chmod(path, 0o777)
+            os.remove(path)
+        except Exception as exc:
+            logger.debug(f"Could not remove {path}: {exc}")
+
     def delete_item(self, item_id: str) -> bool:
         meta_path = os.path.join(self.quarantine_dir, f"{item_id}.json")
         raw_file = os.path.join(self.quarantine_dir, f"{item_id}.quarantine")
         try:
             # Delete physical quarantine payload if found
             if os.path.exists(raw_file):
-                try:
-                    os.remove(raw_file)
-                except Exception:
-                    pass
+                self._safe_remove(raw_file)
 
             if os.path.exists(meta_path):
                 with open(meta_path, "r", encoding="utf-8") as f:
@@ -149,8 +155,8 @@ class QuarantineManager:
                 item = QuarantineItem(**valid_fields)
                 stored_file = os.path.join(self.quarantine_dir, item.quarantine_filename)
                 if os.path.exists(stored_file):
-                    os.remove(stored_file)
-                os.remove(meta_path)
+                    self._safe_remove(stored_file)
+                self._safe_remove(meta_path)
                 logger.info(f"Permanently deleted quarantined item {item_id}")
                 return True
             elif not os.path.exists(raw_file):

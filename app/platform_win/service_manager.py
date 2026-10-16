@@ -65,7 +65,8 @@ def get_clamd_service_status(service_name: str = SERVICE_NAME) -> str:
 
     # Fallback to sc.exe query
     try:
-        res = subprocess.run(["sc.exe", "query", service_name], capture_output=True, text=True, timeout=5)
+        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        res = subprocess.run(["sc.exe", "query", service_name], capture_output=True, text=True, timeout=5, creationflags=flags)
         out = (res.stdout + res.stderr).upper()
         if "1060" in out or "DOES NOT EXIST" in out:
             return "NOT_INSTALLED"
@@ -292,7 +293,8 @@ class ClamDServiceManager:
         if not service_created:
             raw_cmd = f'sc.exe create {SERVICE_NAME} binPath= "\"{clamd_exe}\" --daemon --service-mode -c \"{clamd_conf}\"" start= auto DisplayName= "{DISPLAY_NAME}"'
             logger.info(f"Executing fallback: {raw_cmd}")
-            res = subprocess.run(raw_cmd, shell=False, capture_output=True, text=True, timeout=15)
+            flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            res = subprocess.run(raw_cmd, shell=False, capture_output=True, text=True, timeout=15, creationflags=flags)
             if res.returncode != 0 and "SUCCESS" not in res.stdout.upper():
                 err = res.stdout.strip() or res.stderr.strip()
                 logger.error(f"sc create clamd failed: {err}")
@@ -300,12 +302,14 @@ class ClamDServiceManager:
 
         # 4. Set failure restart recovery
         try:
+            flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
             subprocess.run(
                 f"sc.exe failure {SERVICE_NAME} reset= 86400 actions= restart/5000/restart/10000//",
                 shell=False,
                 capture_output=True,
                 text=True,
                 timeout=10,
+                creationflags=flags,
             )
         except Exception as exc:
             logger.debug(f"Could not set service failure recovery: {exc}")
@@ -352,7 +356,8 @@ class ClamDServiceManager:
             logger.debug(f"Win32 DeleteService error: {exc}")
 
         # Fallback to sc.exe delete
-        res = subprocess.run(f"sc.exe delete {SERVICE_NAME}", shell=False, capture_output=True, text=True, timeout=10)
+        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        res = subprocess.run(f"sc.exe delete {SERVICE_NAME}", shell=False, capture_output=True, text=True, timeout=10, creationflags=flags)
         out = (res.stdout + res.stderr).strip()
         if res.returncode == 0 or "SUCCESS" in out.upper() or "1060" in out:
             return True, "ClamAV ClamD Windows Service uninstalled successfully."
@@ -416,7 +421,8 @@ class ClamDServiceManager:
             logger.debug(f"win32serviceutil StartService: {exc}")
 
         # Fallback to sc.exe start
-        res = subprocess.run(f"sc.exe start {SERVICE_NAME}", shell=False, capture_output=True, text=True, timeout=15)
+        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        res = subprocess.run(f"sc.exe start {SERVICE_NAME}", shell=False, capture_output=True, text=True, timeout=15, creationflags=flags)
         out = (res.stdout + res.stderr).strip()
         if res.returncode == 0 or "START_PENDING" in out.upper() or "RUNNING" in out.upper() or "1056" in out:
             return True, "ClamD service start command sent."
@@ -433,7 +439,8 @@ class ClamDServiceManager:
         except Exception as exc:
             logger.debug(f"win32serviceutil StopService: {exc}")
 
-        res = subprocess.run(f"sc.exe stop {SERVICE_NAME}", shell=False, capture_output=True, text=True, timeout=15)
+        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        res = subprocess.run(f"sc.exe stop {SERVICE_NAME}", shell=False, capture_output=True, text=True, timeout=15, creationflags=flags)
         out = (res.stdout + res.stderr).strip()
         if res.returncode == 0 or "STOP_PENDING" in out.upper() or "STOPPED" in out.upper() or "1062" in out:
             return True, "ClamD service stop command sent."

@@ -378,6 +378,25 @@ class ClamAVEngine:
                     self._active_procs.add(proc)
                     self._active_proc = proc
 
+            # Drain stderr concurrently to prevent pipe buffer deadlock if clamscan outputs verbose logs/errors
+            stderr_buffer = []
+
+            def _drain_stderr():
+                try:
+                    if proc and proc.stderr:
+                        for l in iter(proc.stderr.readline, ""):
+                            if l:
+                                stderr_buffer.append(l)
+                except Exception:
+                    pass
+
+            stderr_drainer = threading.Thread(
+                target=_drain_stderr,
+                daemon=True,
+                name="TinyAV-ScanStderrDrainer",
+            )
+            stderr_drainer.start()
+
             scanned = 0
             while True:
                 if cancel_token and cancel_token.is_set():
@@ -421,6 +440,11 @@ class ClamAVEngine:
                     proc.communicate(timeout=2)
                 except Exception:
                     pass
+
+            try:
+                stderr_drainer.join(timeout=1.0)
+            except Exception:
+                pass
         except Exception as exc:
             logger.error(f"Batch scan failed: {exc}")
         finally:

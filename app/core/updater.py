@@ -166,9 +166,14 @@ class UpdateManager:
             return False, msg
 
         try:
-            logger.info(f"Executing freshclam: {freshclam_bin}")
+            cmd = [freshclam_bin]
+            conf_file = os.path.join(os.path.dirname(freshclam_bin), "freshclam.conf")
+            if os.path.isfile(conf_file):
+                cmd.append(f"--config-file={conf_file}")
+
+            logger.info(f"Executing freshclam: {' '.join(cmd)}")
             proc = subprocess.run(
-                [freshclam_bin],
+                cmd,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",

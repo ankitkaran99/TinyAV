@@ -12,12 +12,13 @@ from app.platform_win.win_drives import DriveDetector, DriveInfo
 logger = get_logger()
 
 DBT_DEVICEARRIVAL = 0x8000
+DBT_DEVICEREMOVECOMPLETE = 0x8004
 DBT_DEVTYP_VOLUME = 0x00000002
 
 class DriveWatcher:
     """
     Monitors for removable drive insertion events using a dedicated Win32 message window
-    listening for WM_DEVICECHANGE / DBT_DEVICEARRIVAL.
+    listening for WM_DEVICECHANGE / DBT_DEVICEARRIVAL and DBT_DEVICEREMOVECOMPLETE.
     """
 
     def __init__(self, callback: Callable[[DriveInfo], None]):
@@ -25,6 +26,7 @@ class DriveWatcher:
         self.hwnd: Optional[int] = None
         self.running = False
         self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
         self._known_drives: Set[str] = set()
         self._last_event_time: Dict[str, float] = {}
         self._debounce_seconds = 3.0
@@ -34,7 +36,8 @@ class DriveWatcher:
             return
         self.running = True
         # Initialize initial drive list
-        self._known_drives = {d.letter for d in DriveDetector.get_all_drives()}
+        with self._lock:
+            self._known_drives = {d.letter for d in DriveDetector.get_all_drives()}
         self._thread = threading.Thread(
             target=self._run_message_loop,
             daemon=True,
@@ -64,6 +67,13 @@ class DriveWatcher:
                     daemon=True,
                     name="TinyAV-DriveArrival",
                 ).start()
+            elif wparam == DBT_DEVICEREMOVECOMPLETE:
+                threading.Thread(
+                    target=self._handle_device_removal,
+                    args=(lparam,),
+                    daemon=True,
+                    name="TinyAV-DriveRemoval",
+                ).start()
             return True
         elif msg == win32con.WM_DESTROY:
             win32gui.PostQuitMessage(0)
@@ -87,6 +97,14 @@ class DriveWatcher:
             logger.debug(f"Could not parse DEV_BROADCAST_VOLUME: {exc}")
         return None
 
+    def _handle_device_removal(self, lparam: int) -> None:
+        try:
+            current_drives = {d.letter for d in DriveDetector.get_all_drives()}
+            with self._lock:
+                self._known_drives = current_drives
+        except Exception as exc:
+            logger.debug(f"Error handling device removal: {exc}")
+
     def _handle_device_arrival(self, lparam: int) -> None:
         time.sleep(0.5)  # Allow Windows time to mount filesystem
         target_letter = self._extract_drive_letter_from_lparam(lparam)
@@ -94,16 +112,17 @@ class DriveWatcher:
         current_drives = {d.letter: d for d in DriveDetector.get_all_drives()}
         candidates = []
 
-        if target_letter and target_letter in current_drives:
-            candidates.append(current_drives[target_letter])
-        else:
-            # Check for any newly added drives
-            for letter, d_info in current_drives.items():
-                if letter not in self._known_drives:
-                    candidates.append(d_info)
+        with self._lock:
+            if target_letter and target_letter in current_drives:
+                candidates.append(current_drives[target_letter])
+            else:
+                # Check for any newly added drives
+                for letter, d_info in current_drives.items():
+                    if letter not in self._known_drives:
+                        candidates.append(d_info)
 
-        # Update known drives
-        self._known_drives = set(current_drives.keys())
+            # Update known drives
+            self._known_drives = set(current_drives.keys())
 
         now = time.time()
         for drive in candidates:
@@ -111,12 +130,13 @@ class DriveWatcher:
             if not drive.is_removable:
                 continue
 
-            last_time = self._last_event_time.get(drive.letter, 0.0)
-            if now - last_time < self._debounce_seconds:
-                logger.debug(f"Debounced duplicate arrival event for drive {drive.letter}")
-                continue
+            with self._lock:
+                last_time = self._last_event_time.get(drive.letter, 0.0)
+                if now - last_time < self._debounce_seconds:
+                    logger.debug(f"Debounced duplicate arrival event for drive {drive.letter}")
+                    continue
+                self._last_event_time[drive.letter] = now
 
-            self._last_event_time[drive.letter] = now
             logger.info(f"Detected removable drive connection: {drive.letter} ({drive.label})")
 
             # Fire notification/callback in separate thread

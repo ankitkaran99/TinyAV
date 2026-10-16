@@ -539,6 +539,11 @@ class ScanTab(ttk.Frame):
             file_path, _, _ = vals
             try:
                 if os.path.exists(file_path):
+                    if os.name == "nt":
+                        try:
+                            os.chmod(file_path, 0o777)
+                        except Exception:
+                            pass
                     os.remove(file_path)
                 self.tree.set(item_id, "action", "Deleted")
                 deleted_count += 1

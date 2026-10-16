@@ -354,9 +354,11 @@ class ClamAVBinaryUpdater:
                 if progress_callback:
                     progress_callback("Extracting and installing binaries...", 95.0)
 
+                elevated_called = False
                 try:
                     success, res_msg, count = self.apply_zip_update_direct(temp_zip, target_dir)
                 except PermissionError:
+                    elevated_called = True
                     if progress_callback:
                         progress_callback("Requesting administrator elevation...", 98.0)
                     success, res_msg = self.apply_zip_update_elevated(temp_zip, target_dir)
@@ -379,8 +381,8 @@ class ClamAVBinaryUpdater:
                 if completion_callback:
                     completion_callback(False, f"Update failed: {exc}")
             finally:
-                # Clean up temp file if not elevated
-                if os.path.isfile(temp_zip) and not self._is_busy:
+                # Clean up temp file only if elevation was not requested
+                if not elevated_called and os.path.isfile(temp_zip):
                     try:
                         os.remove(temp_zip)
                     except Exception:

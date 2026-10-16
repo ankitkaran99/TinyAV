@@ -109,3 +109,24 @@ def test_quarantine_restore_multiple_collisions():
         assert os.path.exists(expected_candidate)
         with open(expected_candidate, "r") as f:
             assert f.read() == "payload 1"
+
+
+def test_quarantine_delete_readonly_file():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        quarantine_dir = os.path.join(tmpdir, "Quarantine")
+        mgr = QuarantineManager(quarantine_dir=quarantine_dir)
+
+        test_file = os.path.join(tmpdir, "readonly_sample.txt")
+        with open(test_file, "w") as f:
+            f.write("payload to delete")
+        item = mgr.quarantine_file(test_file, "Threat.ReadOnly")
+        assert item is not None
+
+        # Mark quarantined file read-only on disk
+        stored_file = os.path.join(quarantine_dir, item.quarantine_filename)
+        os.chmod(stored_file, 0o444)
+
+        # Deletion must succeed despite read-only attribute
+        assert mgr.delete_item(item.id) is True
+        assert not os.path.exists(stored_file)
+        assert not os.path.exists(os.path.join(quarantine_dir, f"{item.id}.json"))

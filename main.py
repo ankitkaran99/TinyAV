@@ -70,6 +70,11 @@ def main() -> None:
         from app.core.binary_updater import ClamAVBinaryUpdater
         zip_path, target_dir = args.apply_clamav_zip
         success, msg, count = ClamAVBinaryUpdater.apply_zip_update_direct(zip_path, target_dir)
+        if os.path.isfile(zip_path) and "tinyav_clamav_update_" in os.path.basename(zip_path):
+            try:
+                os.remove(zip_path)
+            except Exception:
+                pass
         print(msg)
         sys.exit(0 if success else 1)
 
