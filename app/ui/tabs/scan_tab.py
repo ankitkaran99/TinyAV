@@ -302,10 +302,13 @@ class ScanTab(ttk.Frame):
                 targets = [letter]
 
             for root_dir in targets:
+                if self.cancel_event.is_set():
+                    break
                 if not os.path.exists(root_dir):
                     continue
                 for root, dirs, files in os.walk(root_dir, topdown=True):
                     if self.cancel_event.is_set():
+                        dirs.clear()
                         break
                     # Prune quarantine directory from traversal
                     if quar_dir:
@@ -333,6 +336,7 @@ class ScanTab(ttk.Frame):
                 return []
             for root, dirs, files in os.walk(folder, topdown=True):
                 if self.cancel_event.is_set():
+                    dirs.clear()
                     break
                 # Prune quarantine directory from traversal
                 if quar_dir:
@@ -359,8 +363,17 @@ class ScanTab(ttk.Frame):
                 self.ui_queue.put(("SCAN_FINISHED", summary))
                 return
 
+            last_progress_time = 0.0
+            last_progress_count = 0
+
             def on_progress(current: int, total: int, file_path: str):
-                self.ui_queue.put(("SCAN_PROGRESS", (current, total, file_path)))
+                nonlocal last_progress_time, last_progress_count
+                now = time.time()
+                # Throttle UI progress queue messages to at most once per 50ms or every 25 files, or upon final file
+                if current == total or (current - last_progress_count >= 25) or (now - last_progress_time >= 0.05):
+                    last_progress_time = now
+                    last_progress_count = current
+                    self.ui_queue.put(("SCAN_PROGRESS", (current, total, file_path)))
 
             def on_detection(det: ScanDetection):
                 self.ui_queue.put(("SCAN_DETECTION", det))

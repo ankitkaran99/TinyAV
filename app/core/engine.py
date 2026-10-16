@@ -6,7 +6,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import clamd
 from app.core.config import AppConfig
@@ -53,16 +53,23 @@ class ClamAVEngine:
         self.freshclam_path: Optional[str] = None
         self.clamd_path: Optional[str] = None
         self._active_proc: Optional[subprocess.Popen] = None
+        self._active_procs: Set[subprocess.Popen] = set()
+        self._proc_lock = threading.Lock()
         self._scan_lock = threading.Lock()
         self.refresh_engine()
 
     def cancel_active_scan(self) -> None:
-        """Immediately terminates any running clamscan subprocess."""
-        if self._active_proc:
-            try:
-                self._active_proc.terminate()
-            except Exception:
-                pass
+        """Immediately terminates any running clamscan subprocesses."""
+        with self._proc_lock:
+            procs = list(self._active_procs)
+            if self._active_proc:
+                procs.append(self._active_proc)
+            for proc in set(procs):
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+            self._active_procs.clear()
             self._active_proc = None
 
     def find_binary(self, binary_name: str) -> Optional[str]:
@@ -238,7 +245,9 @@ class ClamAVEngine:
                         cwd=os.path.dirname(self.clamscan_path),
                         creationflags=flags,
                     )
-                    self._active_proc = proc
+                    with self._proc_lock:
+                        self._active_procs.add(proc)
+                        self._active_proc = proc
                     stdout, stderr = proc.communicate(timeout=120)
                     stdout = (stdout or "").strip()
                     for line in stdout.splitlines():
@@ -259,7 +268,11 @@ class ClamAVEngine:
                 except Exception as exc:
                     return "ERROR", None, str(exc)
                 finally:
-                    self._active_proc = None
+                    with self._proc_lock:
+                        if "proc" in locals() and proc:
+                            self._active_procs.discard(proc)
+                        if self._active_proc == proc:
+                            self._active_proc = next(iter(self._active_procs), None)
 
         return "ERROR", None, "ClamAV engine is not installed or available."
 
@@ -361,7 +374,9 @@ class ClamAVEngine:
                     cwd=os.path.dirname(self.clamscan_path),
                     creationflags=flags,
                 )
-                self._active_proc = proc
+                with self._proc_lock:
+                    self._active_procs.add(proc)
+                    self._active_proc = proc
 
             scanned = 0
             while True:
@@ -409,7 +424,11 @@ class ClamAVEngine:
         except Exception as exc:
             logger.error(f"Batch scan failed: {exc}")
         finally:
-            self._active_proc = None
+            with self._proc_lock:
+                if "proc" in locals() and proc:
+                    self._active_procs.discard(proc)
+                if self._active_proc == proc:
+                    self._active_proc = next(iter(self._active_procs), None)
             if temp_list and os.path.exists(temp_list):
                 try:
                     os.remove(temp_list)

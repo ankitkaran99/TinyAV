@@ -57,7 +57,13 @@ class DriveWatcher:
     def _wnd_proc(self, hwnd: int, msg: int, wparam: int, lparam: int):
         if msg == win32con.WM_DEVICECHANGE:
             if wparam == DBT_DEVICEARRIVAL:
-                self._handle_device_arrival(lparam)
+                # Dispatch asynchronously to avoid sleeping or blocking the OS message loop thread
+                threading.Thread(
+                    target=self._handle_device_arrival,
+                    args=(lparam,),
+                    daemon=True,
+                    name="TinyAV-DriveArrival",
+                ).start()
             return True
         elif msg == win32con.WM_DESTROY:
             win32gui.PostQuitMessage(0)

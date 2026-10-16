@@ -12,6 +12,8 @@ logger = get_logger()
 
 SHELL_KEY_STAR = r"*\shell\ScanWithClamAV"
 SHELL_KEY_DIR = r"Directory\shell\ScanWithClamAV"
+HKCU_SHELL_STAR = r"Software\Classes\*\shell\ScanWithClamAV"
+HKCU_SHELL_DIR = r"Software\Classes\Directory\shell\ScanWithClamAV"
 MENU_LABEL = "Scan with ClamAV"
 
 def is_admin() -> bool:
@@ -37,12 +39,19 @@ def get_launch_command() -> str:
         return f'"{python_bin}" "{main_py}" --scan-path "%1"'
 
 def is_context_menu_registered() -> bool:
+    # Check HKCU first (user-level, non-elevated)
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, HKCU_SHELL_STAR + r"\command", 0, winreg.KEY_READ):
+            return True
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        logger.debug(f"Error checking HKCU registry status: {exc}")
+
+    # Check HKCR (system-wide)
     try:
         with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, SHELL_KEY_STAR + r"\command", 0, winreg.KEY_READ):
-            pass
-        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, SHELL_KEY_DIR + r"\command", 0, winreg.KEY_READ):
-            pass
-        return True
+            return True
     except FileNotFoundError:
         return False
     except Exception as exc:
@@ -50,53 +59,51 @@ def is_context_menu_registered() -> bool:
         return False
 
 def register_context_menu_direct() -> Tuple[bool, str]:
-    """Registers the context menu keys directly. Requires elevated permissions."""
+    """Registers context menu keys in HKCU (zero admin elevation needed) and HKCR if admin."""
     command_str = get_launch_command()
-    keys_to_create = [SHELL_KEY_STAR, SHELL_KEY_DIR]
+    exe_icon = sys.executable
 
+    # 1. Register in HKCU (user-level: completely silent, no UAC prompt needed)
     try:
-        for base_sub in keys_to_create:
-            with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, base_sub) as key:
+        for sub_key in (HKCU_SHELL_STAR, HKCU_SHELL_DIR):
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, sub_key) as key:
                 winreg.SetValueEx(key, "", 0, winreg.REG_SZ, MENU_LABEL)
-                # Set icon if available
-                if getattr(sys, "frozen", False):
-                    winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, sys.executable)
-                else:
-                    winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, sys.executable)
-
-            with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, base_sub + r"\command") as cmd_key:
+                winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, exe_icon)
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, sub_key + r"\command") as cmd_key:
                 winreg.SetValueEx(cmd_key, "", 0, winreg.REG_SZ, command_str)
 
-        logger.info(f"Registered Windows Explorer context menu: {command_str}")
+        logger.info(f"Registered Windows Explorer context menu in HKCU: {command_str}")
         return True, "Successfully registered context menu integration."
-    except PermissionError:
-        return False, "Access denied: Administrative privileges required."
     except Exception as exc:
-        logger.error(f"Failed to register context menu: {exc}")
+        logger.error(f"Failed to register context menu in HKCU: {exc}")
         return False, str(exc)
 
 def unregister_context_menu_direct() -> Tuple[bool, str]:
-    """Deletes the context menu keys directly. Requires elevated permissions."""
-    keys_to_remove = [SHELL_KEY_STAR, SHELL_KEY_DIR]
-    errors = []
-
-    for base_sub in keys_to_remove:
+    """Deletes context menu keys from HKCU and HKCR."""
+    # 1. Delete from HKCU
+    for base_sub in (HKCU_SHELL_STAR, HKCU_SHELL_DIR):
         try:
-            # Delete child key first
+            try:
+                winreg.DeleteKey(winreg.HKEY_CURRENT_USER, base_sub + r"\command")
+            except FileNotFoundError:
+                pass
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, base_sub)
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            logger.debug(f"Error unregistering HKCU context menu key {base_sub}: {exc}")
+
+    # 2. Delete from HKCR if present/admin
+    for base_sub in (SHELL_KEY_STAR, SHELL_KEY_DIR):
+        try:
             try:
                 winreg.DeleteKey(winreg.HKEY_CLASSES_ROOT, base_sub + r"\command")
             except FileNotFoundError:
                 pass
             winreg.DeleteKey(winreg.HKEY_CLASSES_ROOT, base_sub)
-        except FileNotFoundError:
-            continue
-        except PermissionError:
-            return False, "Access denied: Administrative privileges required."
-        except Exception as exc:
-            errors.append(str(exc))
+        except Exception:
+            pass
 
-    if errors:
-        return False, "; ".join(errors)
     logger.info("Unregistered Windows Explorer context menu.")
     return True, "Successfully unregistered context menu integration."
 

@@ -298,9 +298,14 @@ class RealtimeFolderWatcher:
                 return
 
             # Cooldown check: if recently completed scan within cooldown window, skip duplicate
+            # unless the file was genuinely modified after the previous scan finished
             last_scanned = self._recently_scanned.get(norm_path, 0.0)
             if now - last_scanned < self._cooldown_window:
-                return
+                try:
+                    if os.path.exists(clean_path) and os.path.getmtime(clean_path) <= last_scanned:
+                        return
+                except Exception:
+                    return
 
             # If already pending in queue, update trailing-edge activity timestamp
             if norm_path in self._queue:

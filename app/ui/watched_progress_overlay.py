@@ -114,6 +114,12 @@ class WatchedProgressOverlay(tk.Toplevel):
         self.geometry(f"{width}x{height}+{x}+{y}")
 
     def show(self) -> None:
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:
+            return
+
         if self._auto_close_id:
             try:
                 self.after_cancel(self._auto_close_id)
@@ -128,6 +134,12 @@ class WatchedProgressOverlay(tk.Toplevel):
         self._is_visible = True
 
     def hide(self) -> None:
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:
+            return
+
         if self._auto_close_id:
             try:
                 self.after_cancel(self._auto_close_id)
@@ -139,6 +151,12 @@ class WatchedProgressOverlay(tk.Toplevel):
         self._is_visible = False
 
     def update_progress(self, completed: int, total: int, current_file: str) -> None:
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:
+            return
+
         # Cancel any previous close timer
         if self._auto_close_id:
             try:
@@ -167,6 +185,12 @@ class WatchedProgressOverlay(tk.Toplevel):
         self.show()
 
     def on_completed(self, total: int, threats_found: int) -> None:
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:
+            return
+
         if self._auto_close_id:
             try:
                 self.after_cancel(self._auto_close_id)

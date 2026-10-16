@@ -56,6 +56,7 @@ class MainWindow:
         self.drive_watcher: Optional[DriveWatcher] = None
         self._watchdog_counter = 0
         self._last_clean_notify_time = 0.0
+        self._notified_minimized = False
 
         self._build_ui()
 
@@ -244,7 +245,9 @@ class MainWindow:
 
     def hide_to_tray(self) -> None:
         self.root.withdraw()
-        self.tray.notify("TinyAV", "TinyAV is running in the background. Access it via the system tray.")
+        if not self._notified_minimized:
+            self._notified_minimized = True
+            self.tray.notify("TinyAV", "TinyAV is running in the background. Access it via the system tray.")
 
     def show_window(self) -> None:
         logger.info("Restoring TinyAV main window from system tray...")
