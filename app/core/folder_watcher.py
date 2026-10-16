@@ -38,13 +38,37 @@ IGNORED_DIR_NAMES = {
 }
 
 
+class QueuedFile:
+    __slots__ = (
+        "clean_path",
+        "norm_path",
+        "first_enqueued",
+        "last_event",
+        "settle_delay",
+        "retry_count",
+        "status",
+    )
+
+    def __init__(self, clean_path: str, norm_path: str, settle_delay: float):
+        now = time.time()
+        self.clean_path = clean_path
+        self.norm_path = norm_path
+        self.first_enqueued = now
+        self.last_event = now
+        self.settle_delay = settle_delay
+        self.retry_count = 0
+        self.status = "pending"  # "pending" | "scanning" | "completed" | "error"
+
+
 class FileCreationHandler(FileSystemEventHandler):
     def __init__(self, watcher: "RealtimeFolderWatcher"):
         super().__init__()
         self.watcher = watcher
 
     def on_created(self, event: FileSystemEvent) -> None:
-        if not event.is_directory and self.watcher.is_path_watched(event.src_path):
+        if event.is_directory:
+            self.watcher.queue_directory(event.src_path)
+        elif self.watcher.is_path_watched(event.src_path):
             self.watcher.queue_scan(event.src_path)
 
     def on_modified(self, event: FileSystemEvent) -> None:
@@ -53,7 +77,9 @@ class FileCreationHandler(FileSystemEventHandler):
 
     def on_moved(self, event: FileSystemEvent) -> None:
         # Browser downloads typically rename .crdownload/.part -> final filename
-        if not event.is_directory and self.watcher.is_path_watched(event.dest_path):
+        if event.is_directory:
+            self.watcher.queue_directory(event.dest_path)
+        elif self.watcher.is_path_watched(event.dest_path):
             self.watcher.queue_scan(event.dest_path)
 
 
@@ -62,9 +88,9 @@ class RealtimeFolderWatcher:
     Watches configured directories (e.g. Downloads folder) for newly created or completed
     files and triggers background ClamAV scans.
     
-    Uses a single background worker loop with trailing-edge settling and batching to ensure
-    large extractions (e.g. unzipping archives with hundreds of files) run efficiently with
-    low CPU/RAM usage and NEVER hang or lag the host system.
+    Maintains a robust FIFO queue of pending items with trailing-edge settling, lock retries,
+    batching, and progress reporting to ensure no files are skipped or dropped when new files
+    arrive while a scan is active.
     """
 
     def __init__(
@@ -76,8 +102,10 @@ class RealtimeFolderWatcher:
         on_scan_clean: Optional[Callable[[str], None]] = None,
         on_scan_start: Optional[Callable[[str], None]] = None,
         on_batch_clean: Optional[Callable[[int, str], None]] = None,
+        on_queue_progress: Optional[Callable[[int, int, str], None]] = None,
+        on_queue_complete: Optional[Callable[[int, int], None]] = None,
         debounce_window: float = 0.6,
-        cooldown_window: float = 3.0,
+        cooldown_window: float = 1.5,
     ):
         self.config_manager = config_manager
         self.engine = engine
@@ -86,6 +114,8 @@ class RealtimeFolderWatcher:
         self.on_scan_clean = on_scan_clean
         self.on_scan_start = on_scan_start
         self.on_batch_clean = on_batch_clean
+        self.on_queue_progress = on_queue_progress
+        self.on_queue_complete = on_queue_complete
         self._debounce_window = debounce_window
         self._cooldown_window = cooldown_window
 
@@ -96,8 +126,12 @@ class RealtimeFolderWatcher:
         self._wake_event = threading.Event()
         self._worker_thread: Optional[threading.Thread] = None
 
-        # Dict mapping norm_path -> (clean_path, last_modified_timestamp, delay)
-        self._pending_files: Dict[str, Tuple[str, float, float]] = {}
+        # Queue tracking
+        self._queue: Dict[str, QueuedFile] = {}
+        self._session_total: int = 0
+        self._session_completed: int = 0
+        self._session_threats: int = 0
+        self._active_scans: Set[str] = set()
         self._recently_scanned: Dict[str, float] = {}
 
     def is_path_watched(self, file_path: str) -> bool:
@@ -200,7 +234,11 @@ class RealtimeFolderWatcher:
                     logger.error(f"Error stopping realtime monitor: {exc}")
                 self.observer = None
 
-            self._pending_files.clear()
+            self._queue.clear()
+            self._active_scans.clear()
+            self._session_total = 0
+            self._session_completed = 0
+            self._session_threats = 0
             self.is_running = False
 
     def restart(self) -> None:
@@ -214,11 +252,25 @@ class RealtimeFolderWatcher:
         )
         self.restart()
 
+    def queue_directory(self, dir_path: str) -> None:
+        """Recursively enqueues all valid files found inside a directory tree."""
+        if not os.path.isdir(dir_path):
+            return
+        try:
+            for root, dirs, files in os.walk(dir_path):
+                dirs[:] = [d for d in dirs if d.lower() not in IGNORED_DIR_NAMES]
+                for f in files:
+                    full_p = os.path.join(root, f)
+                    if self.is_path_watched(full_p):
+                        self.queue_scan(full_p)
+        except Exception as exc:
+            logger.debug(f"Error scanning directory tree {dir_path}: {exc}")
+
     def queue_scan(self, file_path: str, delay: Optional[float] = None) -> None:
         """
-        Enqueues a file for scanning using an O(1) in-memory settling queue.
+        Enqueues a file for scanning using an in-memory queue.
         Subsequent writes reset the file's settling timestamp.
-        Zero threads are created here, guaranteeing zero UI freezing or system hangs.
+        Zero threads are spawned on event arrival, guaranteeing zero UI freezing.
         """
         if not file_path:
             return
@@ -241,106 +293,172 @@ class RealtimeFolderWatcher:
         effective_delay = delay if delay is not None else self._debounce_window
 
         with self._lock:
-            # Cooldown check: if recently completed a scan within cooldown window, skip
+            # If actively scanning right now, do not drop; queue for re-check
+            if norm_path in self._active_scans:
+                return
+
+            # Cooldown check: if recently completed scan within cooldown window, skip duplicate
             last_scanned = self._recently_scanned.get(norm_path, 0.0)
             if now - last_scanned < self._cooldown_window:
                 return
 
-            # Cap pending files to prevent unbounded memory on extreme extractions
-            if len(self._pending_files) > 1000:
-                oldest = sorted(self._pending_files.items(), key=lambda x: x[1][1])[:300]
-                for k, _ in oldest:
-                    self._pending_files.pop(k, None)
-
-            # Record / update trailing edge activity timestamp
-            self._pending_files[norm_path] = (clean_path, now, effective_delay)
+            # If already pending in queue, update trailing-edge activity timestamp
+            if norm_path in self._queue:
+                item = self._queue[norm_path]
+                item.last_event = now
+                item.settle_delay = effective_delay
+            else:
+                # New item entering queue
+                item = QueuedFile(clean_path, norm_path, effective_delay)
+                self._queue[norm_path] = item
+                self._session_total += 1
+                self._notify_progress(clean_path)
 
         self._ensure_worker_running()
         self._wake_event.set()
 
+    def _notify_progress(self, current_file: str, current_done: Optional[int] = None) -> None:
+        if not self.on_queue_progress:
+            return
+        with self._lock:
+            done = current_done if current_done is not None else self._session_completed
+            total = max(self._session_total, done, 1)
+        try:
+            self.on_queue_progress(done, total, current_file)
+        except Exception as exc:
+            logger.debug(f"Error in on_queue_progress: {exc}")
+
+    def _finish_session(self) -> None:
+        with self._lock:
+            total = self._session_total
+            threats = self._session_threats
+            self._session_total = 0
+            self._session_completed = 0
+            self._session_threats = 0
+
+        if total > 0 and self.on_queue_complete:
+            try:
+                self.on_queue_complete(total, threats)
+            except Exception as exc:
+                logger.debug(f"Error in on_queue_complete: {exc}")
+
     def _worker_loop(self) -> None:
-        """Dedicated single worker thread handling file settling and batched scanning."""
+        """Dedicated single worker thread handling file settling, retries, and batched scanning."""
         while not self._stop_event.is_set():
-            self._wake_event.wait(timeout=0.2)
+            self._wake_event.wait(timeout=0.25)
             self._wake_event.clear()
 
             if self._stop_event.is_set():
                 break
 
             now = time.time()
-            settled_batch: List[Tuple[str, str]] = []
 
             with self._lock:
+                # Prune old recently scanned cache (> 60s)
                 if len(self._recently_scanned) > 500:
-                    cutoff = now - 120.0
+                    cutoff = now - 60.0
                     self._recently_scanned = {p: t for p, t in self._recently_scanned.items() if t > cutoff}
 
-                ready_keys = []
-                for norm_p, (clean_p, last_time, delay) in self._pending_files.items():
-                    if now - last_time >= delay:
-                        ready_keys.append(norm_p)
-                        settled_batch.append((norm_p, clean_p))
-                        if len(settled_batch) >= 50:
+                # Find candidates whose settle delay has expired
+                candidates: List[QueuedFile] = []
+                for norm_p, item in list(self._queue.items()):
+                    if item.status == "pending" and (now - item.last_event >= item.settle_delay):
+                        candidates.append(item)
+                        if len(candidates) >= 50:
                             break
 
-                for norm_p in ready_keys:
-                    self._pending_files.pop(norm_p, None)
-
-            if not settled_batch:
+            if not candidates:
+                with self._lock:
+                    if not self._queue and not self._active_scans and self._session_total > 0:
+                        self._finish_session()
                 continue
+
+            # Check candidates for settle / read readiness without dropping locked files
+            to_scan: List[QueuedFile] = []
+            for item in candidates:
+                if self._stop_event.is_set():
+                    return
+
+                # If file disappeared (deleted or moved away), remove from queue
+                if not os.path.exists(item.clean_path) or os.path.isdir(item.clean_path):
+                    with self._lock:
+                        self._queue.pop(item.norm_path, None)
+                        self._session_completed += 1
+                        self._notify_progress(item.clean_path)
+                    continue
+
+                # Verify file is accessible for reading (not locked by ongoing write / download)
+                if self._is_file_readable(item.clean_path):
+                    to_scan.append(item)
+                else:
+                    # Still locked by another process (e.g. browser write or multi-part copy)
+                    # DO NOT DROP! Keep in queue and re-check after brief delay
+                    with self._lock:
+                        item.retry_count += 1
+                        if item.retry_count > 120:  # ~60 seconds of continuous lock
+                            logger.warning(f"File locked for too long, dropping from queue: {item.clean_path}")
+                            self._queue.pop(item.norm_path, None)
+                            self._session_completed += 1
+                        else:
+                            item.last_event = time.time()
+                            item.settle_delay = 0.5
+
+            if not to_scan:
+                continue
+
+            # Mark to_scan items as scanning
+            with self._lock:
+                for item in to_scan:
+                    item.status = "scanning"
+                    self._active_scans.add(item.norm_path)
 
             try:
-                self._process_settled_batch(settled_batch)
+                self._execute_scan_batch(to_scan)
             except Exception as exc:
-                logger.error(f"Error processing settled realtime batch: {exc}", exc_info=True)
+                logger.error(f"Error processing realtime scan batch: {exc}", exc_info=True)
+            finally:
+                now_finish = time.time()
+                with self._lock:
+                    for item in to_scan:
+                        self._active_scans.discard(item.norm_path)
+                        self._queue.pop(item.norm_path, None)
+                        self._session_completed += 1
+                        self._recently_scanned[item.norm_path] = now_finish
 
-            # If there are remaining settled items, trigger immediate next tick
+                    if not self._queue and not self._active_scans:
+                        self._finish_session()
+
+            # If more items exist in the queue, wake worker for next tick immediately
             with self._lock:
-                if any(now - t >= d for _, (_, t, d) in self._pending_files.items()):
+                if self._queue:
                     self._wake_event.set()
 
-    def _process_settled_batch(self, batch: List[Tuple[str, str]]) -> None:
-        valid_files: List[Tuple[str, str]] = []
-        for norm_p, clean_p in batch:
-            if self._stop_event.is_set():
-                return
-            if not os.path.exists(clean_p) or os.path.isdir(clean_p):
-                continue
-            if self._wait_for_file_settle(clean_p):
-                valid_files.append((norm_p, clean_p))
-
-        if not valid_files:
-            return
-
-        if len(valid_files) == 1:
-            norm_p, clean_p = valid_files[0]
-            self._scan_single(clean_p, norm_p)
-        else:
-            self._scan_batch(valid_files)
-
-    def _wait_for_file_settle(self, file_path: str, max_retries: int = 5, retry_delay: float = 0.15) -> bool:
+    def _is_file_readable(self, file_path: str) -> bool:
         """
         Verifies the file exists and is accessible for reading without exclusive locks.
-        Since debounce_window already ensured no writes occurred during the quiet period,
-        this check succeeds immediately if unlocked, or retries briefly if still locked.
         """
         if not os.path.exists(file_path) or os.path.isdir(file_path):
             return False
+        try:
+            curr_size = os.path.getsize(file_path)
+            with open(file_path, "rb") as f:
+                f.read(min(1024, curr_size) if curr_size > 0 else 0)
+            return True
+        except (PermissionError, OSError):
+            return False
 
-        for _ in range(max_retries):
-            if self._stop_event.is_set():
-                return False
-            try:
-                curr_size = os.path.getsize(file_path)
-                with open(file_path, "rb") as f:
-                    f.read(min(1024, curr_size) if curr_size > 0 else 0)
-                return True
-            except (PermissionError, OSError):
-                time.sleep(retry_delay)
+    def _execute_scan_batch(self, batch: List[QueuedFile]) -> None:
+        if not batch:
+            return
 
-        return False
+        if len(batch) == 1:
+            item = batch[0]
+            self._scan_single(item.clean_path, item.norm_path)
+        else:
+            self._scan_batch(batch)
 
     def _scan_single(self, clean_p: str, norm_p: str) -> None:
+        self._notify_progress(clean_p)
         if self.on_scan_start:
             try:
                 self.on_scan_start(clean_p)
@@ -350,13 +468,13 @@ class RealtimeFolderWatcher:
         logger.info(f"Realtime scan inspecting: {clean_p}")
         status, threat, err = self.engine.scan_single_file(clean_p)
 
-        with self._lock:
-            self._recently_scanned[norm_p] = time.time()
-
         if status == "FOUND":
             threat_name = threat or "Threat Detected"
             logger.warning(f"REALTIME DETECTION: {clean_p} infected with {threat_name}!")
             auto_quarantined = False
+
+            with self._lock:
+                self._session_threats += 1
 
             if self.config_manager.config.realtime_auto_quarantine:
                 res = self.quarantine_manager.quarantine_file(clean_p, threat_name)
@@ -378,8 +496,8 @@ class RealtimeFolderWatcher:
         else:
             logger.debug(f"Realtime scan error on {clean_p}: {err}")
 
-    def _scan_batch(self, valid_files: List[Tuple[str, str]]) -> None:
-        file_paths = [clean_p for _, clean_p in valid_files]
+    def _scan_batch(self, batch: List[QueuedFile]) -> None:
+        file_paths = [b.clean_path for b in batch]
         total = len(file_paths)
         sample_name = os.path.basename(file_paths[0])
 
@@ -395,20 +513,24 @@ class RealtimeFolderWatcher:
         def on_detection(det: ScanDetection):
             detections.append(det)
 
+        def on_batch_prog(idx: int, tot: int, curr_p: str):
+            with self._lock:
+                done = self._session_completed + (idx - 1)
+            self._notify_progress(curr_p, current_done=done)
+
         summary = self.engine.scan_files(
             file_paths=file_paths,
+            progress_callback=on_batch_prog,
             detection_callback=on_detection,
             cancel_token=self._stop_event,
         )
 
-        now = time.time()
-        with self._lock:
-            for norm_p, _ in valid_files:
-                self._recently_scanned[norm_p] = now
-
         for det in detections:
             threat_name = det.threat_name or "Threat Detected"
             auto_quarantined = False
+            with self._lock:
+                self._session_threats += 1
+
             if self.config_manager.config.realtime_auto_quarantine:
                 res = self.quarantine_manager.quarantine_file(det.file_path, threat_name)
                 auto_quarantined = (res is not None)
@@ -419,7 +541,10 @@ class RealtimeFolderWatcher:
                 except Exception as exc:
                     logger.error(f"Error in on_threat_detected: {exc}")
 
-        clean_count = summary.scanned_files - len(detections)
+        scanned_count = getattr(summary, "scanned_files", total)
+        if not isinstance(scanned_count, int):
+            scanned_count = total
+        clean_count = max(0, scanned_count - len(detections))
         if clean_count > 0:
             logger.info(f"Realtime batch scan clean: {clean_count}/{total} files verified safe")
             if self.on_batch_clean:

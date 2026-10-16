@@ -21,6 +21,7 @@ from app.ui.tabs.settings_tab import SettingsTab
 from app.ui.tabs.update_tab import UpdateTab
 from app.ui.threat_dialog import ThreatNotificationDialog
 from app.ui.tray import TrayManager
+from app.ui.watched_progress_overlay import WatchedProgressOverlay
 
 logger = get_logger()
 
@@ -75,6 +76,9 @@ class MainWindow:
         self.drive_watcher = DriveWatcher(callback=self._on_usb_drive_detected)
         self.drive_watcher.start()
 
+        # Desktop bottom-right floating progress overlay
+        self.watched_progress_overlay = WatchedProgressOverlay(self.root)
+
         # Setup Real-time Directory Watcher (e.g. Downloads folder)
         self.folder_watcher = RealtimeFolderWatcher(
             config_manager=self.config_manager,
@@ -84,6 +88,8 @@ class MainWindow:
             on_scan_clean=lambda path: self.ui_queue.put(("REALTIME_CLEAN", path)),
             on_scan_start=lambda path: self.ui_queue.put(("REALTIME_START", path)),
             on_batch_clean=lambda count, sample: self.ui_queue.put(("REALTIME_BATCH_CLEAN", (count, sample))),
+            on_queue_progress=lambda done, total, path: self.ui_queue.put(("REALTIME_PROGRESS", (done, total, path))),
+            on_queue_complete=lambda total, threats: self.ui_queue.put(("REALTIME_COMPLETE", (total, threats))),
         )
         self.folder_watcher.start()
 
@@ -168,6 +174,37 @@ class MainWindow:
         self.notebook.add(self.settings_tab, text="  Settings  ")
 
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+        # Footer status bar with bottom-right watched folder queue progress bar
+        self.footer_frame = ttk.Frame(self.root, padding=(10, 4))
+        self.footer_frame.grid(row=1, column=0, sticky="ew")
+        self.footer_frame.columnconfigure(0, weight=1)
+
+        self.footer_engine_label = ttk.Label(
+            self.footer_frame,
+            text=f"Engine: {self.engine.engine_version}",
+            font=("Segoe UI", 8),
+            foreground="#666666",
+        )
+        self.footer_engine_label.grid(row=0, column=0, sticky="w")
+
+        self.footer_right_frame = ttk.Frame(self.footer_frame)
+        self.footer_right_frame.grid(row=0, column=1, sticky="e")
+
+        self.footer_queue_label = ttk.Label(
+            self.footer_right_frame,
+            text="",
+            font=("Segoe UI", 8),
+            foreground="#555555",
+        )
+        self.footer_queue_label.pack(side="left", padx=(0, 6))
+
+        self.footer_progress_bar = ttk.Progressbar(
+            self.footer_right_frame,
+            orient="horizontal",
+            mode="determinate",
+            length=140,
+        )
 
     def _on_tab_changed(self, event=None) -> None:
         try:
@@ -342,6 +379,49 @@ class MainWindow:
                         "Files Verified Safe",
                         f"{count} extracted/downloaded files were scanned and verified clean.",
                     )
+        elif event_type == "REALTIME_PROGRESS":
+            done, total, path = data
+            fname = os.path.basename(path) if path else ""
+            pct = int((done / total) * 100) if total > 0 else 0
+
+            # 1. Update floating desktop bottom-right corner overlay
+            if hasattr(self, "watched_progress_overlay") and self.watched_progress_overlay:
+                self.watched_progress_overlay.update_progress(done, total, path)
+
+            # 2. Update MainWindow bottom-right status
+            if hasattr(self, "footer_progress_bar"):
+                if not self.footer_progress_bar.winfo_ismapped():
+                    self.footer_progress_bar.pack(side="right")
+                self.footer_progress_bar.config(value=pct)
+            if hasattr(self, "footer_queue_label"):
+                status_txt = f"Watched scan: {done}/{total}"
+                if fname:
+                    display_name = fname[:18] + "..." if len(fname) > 18 else fname
+                    status_txt += f" ({display_name})"
+                self.footer_queue_label.config(text=status_txt)
+
+            # 3. Update tray state
+            self._set_app_state("scanning")
+
+        elif event_type == "REALTIME_COMPLETE":
+            total, threats = data
+            # 1. Update floating desktop overlay
+            if hasattr(self, "watched_progress_overlay") and self.watched_progress_overlay:
+                self.watched_progress_overlay.on_completed(total, threats)
+
+            # 2. Update MainWindow bottom-right status
+            if hasattr(self, "footer_progress_bar"):
+                self.footer_progress_bar.config(value=100)
+            if hasattr(self, "footer_queue_label"):
+                if threats > 0:
+                    self.footer_queue_label.config(text=f"Watched scan: {threats} threat(s) detected")
+                else:
+                    self.footer_queue_label.config(text=f"Watched scan: {total} files clean")
+
+            self.root.after(3000, self._reset_footer_queue)
+
+            # 3. Restore tray state
+            self._check_overall_threat_state()
         elif event_type == "TRAY_ACTION":
             action = data
             logger.info(f"Processing TRAY_ACTION: {action}")
@@ -415,6 +495,17 @@ class MainWindow:
             except Exception:
                 pass
 
+    def _reset_footer_queue(self) -> None:
+        try:
+            if hasattr(self, "footer_queue_label"):
+                self.footer_queue_label.config(text="")
+            if hasattr(self, "footer_progress_bar"):
+                self.footer_progress_bar.config(value=0)
+                if self.footer_progress_bar.winfo_ismapped():
+                    self.footer_progress_bar.pack_forget()
+        except Exception:
+            pass
+
     def exit_app(self) -> None:
         logger.info("Exiting TinyAV application...")
         if hasattr(self, "scan_tab") and self.scan_tab.is_scanning:
@@ -423,6 +514,11 @@ class MainWindow:
             self.engine.cancel_active_scan()
         if hasattr(self, "folder_watcher") and self.folder_watcher:
             self.folder_watcher.stop()
+        if hasattr(self, "watched_progress_overlay") and self.watched_progress_overlay:
+            try:
+                self.watched_progress_overlay.destroy()
+            except Exception:
+                pass
         if self.drive_watcher:
             self.drive_watcher.stop()
         self.update_manager.stop_scheduler()
